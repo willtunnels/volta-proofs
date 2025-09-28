@@ -11,9 +11,6 @@ DecSet A = A → Bool
 ∅ : {A : Set} → DecSet A
 ∅ _ = false
 
-postulate
-  isEmpty : {A : Set} → (s : DecSet A) → Dec (s ≡ ∅)
-
 mkSet : {A : Set} → DecidableEquality A → A → DecSet A
 mkSet _≟_ x y = Dec.does (x ≟ y)
 
@@ -40,4 +37,4 @@ _∩_ : {A : Set} → DecSet A → DecSet A → DecSet A
 (s1 ∩ s2) a = s1 a ∧ s2 a
 
 _-_ : {A : Set} → DecSet A → DecSet A → DecSet A
-(s1 - s2) a = s1 a ∧ (not (s2 a))
+(s1 - s2) a = s1 a ∧ not (s2 a)
