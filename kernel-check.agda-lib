@@ -1,0 +1,5 @@
+name: kernel-check
+include: src
+depend: standard-library
+flags:
+  --with-K
