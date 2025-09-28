@@ -3,7 +3,7 @@ module KernelCheck.Prog where
 open import Function.Base using (_∘_)
 open import Data.Empty using (⊥-elim)
 open import Data.Nat using (ℕ; zero; suc; _≟_)
-open import Data.Bool using (not; if_then_else_)
+open import Data.Bool using (Bool; true; false; not; if_then_else_)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 import Data.Sum.Properties
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
@@ -23,6 +23,7 @@ record Magma : Set₁ where
 open Magma
 
 record Rid : Set where
+  constructor mkRid
   field
     val : ℕ
 
@@ -32,6 +33,7 @@ ridEq x y with Rid.val x ≟ Rid.val y
 ... | no !p = no (!p ∘ cong Rid.val)
 
 record Gid : Set where
+  constructor mkGid
   field
     val : ℕ
 
@@ -41,6 +43,7 @@ gidEq x y with Gid.val x ≟ Gid.val y
 ... | no !p = no (!p ∘ cong Gid.val)
 
 record Tid : Set where
+  constructor mkTid
   field
     val : ℕ
 
@@ -104,6 +107,9 @@ record MemEvs : Set where
     rd : Rd
     wr : Wr
 
+MemEvs-≡ : ∀ {x x' y y'} → x ≡ x' → y ≡ y' → evs x y ≡ evs x' y'
+MemEvs-≡ refl refl = refl
+
 noRacingRd : Tid → Rd → Set
 noRacingRd i rd = ∀ j → i ∉ rd j
 
@@ -116,8 +122,18 @@ Mem = Gid → MemEvs
 updFun : {A B : Set} → DecidableEquality A → (A → B) → A → B → A → B
 updFun _≟_ f x y x' = if Dec.does (x ≟ x') then y else f x'
 
-updFun-comm : ∀ {A B : Set} {_≟_ f} {x1 x2 : A} {y1 y2 : B} → x1 ≢ x2 → updFun _≟_ (updFun _≟_ f x1 y1) x2 y2 ≡ updFun _≟_ (updFun _≟_ f x2 y2) x1 y1
-updFun-comm {A} {B} {_≟_} {f} {x1} {x2} {y1} {y2} neq = funext lem
+updFun-simp-≡ : {A B : Set} (_≟_ : DecidableEquality A) (f : A → B) (x : A) (y : B) → updFun _≟_ f x y x ≡ y
+updFun-simp-≡ _≟_ f x y with x ≟ x
+... | yes _ = refl
+... | no ¬p = ⊥-elim (¬p refl)
+
+updFun-simp-≢ : {A B : Set} (_≟_ : DecidableEquality A) (f : A → B) (x x' : A) (y : B) → x ≢ x' → updFun _≟_ f x y x' ≡ f x'
+updFun-simp-≢ _≟_ f x x' y neq with x ≟ x'
+... | yes p = ⊥-elim (neq p)
+... | no ¬p = refl
+
+updFun-comm : {A B : Set} (_≟_ : DecidableEquality A) (f : A → B) {x1 x2 : A} → x1 ≢ x2 → (y1 y2 : B) → updFun _≟_ (updFun _≟_ f x1 y1) x2 y2 ≡ updFun _≟_ (updFun _≟_ f x2 y2) x1 y1
+updFun-comm {A} {B} _≟_ f {x1} {x2} neq y1 y2 = funext lem
   where
   lem : (z : A) → updFun _≟_ (updFun _≟_ f x1 y1) x2 y2 z ≡ updFun _≟_ (updFun _≟_ f x2 y2) x1 y1 z
   lem z with x1 ≟ z | x2 ≟ z
@@ -128,9 +144,6 @@ updFun-comm {A} {B} {_≟_} {f} {x1} {x2} {y1} {y2} neq = funext lem
 
 _[_↦_] : {A : Set} → Env A → Addr → A → Addr → A
 _[_↦_] = updFun addrEq
-
-updMem : Mem → Gid → MemEvs → Gid → MemEvs
-updMem = updFun gidEq
 
 !_ : Tid → TidSet
 (! i) j = not (Dec.does (Tid.val i ≟ Tid.val j))
@@ -181,15 +194,17 @@ data StepThd (ℂ : Magma) (i : Tid) : Env (Carrier ℂ) → Mem → Thd ℂ →
     → StepThd ℂ i E X (rdReg r1 r2 ⨟ T) (E [ rid r1 ↦ E (rid r2) ]) X T
   rdGbl : ∀ E X r g T
     → noRacingWr i (MemEvs.wr (X g))
-    → StepThd ℂ i E X (rdGbl r g ⨟ T) (E [ rid r ↦ E (gid g) ]) (updMem X g (doRd (X g) i)) T
+    → StepThd ℂ i E X (rdGbl r g ⨟ T) (E [ rid r ↦ E (gid g) ]) (updFun gidEq X g (doRd (X g) i)) T
   wrGbl : ∀ E X g r T
     → noRacingRd i (MemEvs.rd (X g))
     → noRacingWr i (MemEvs.wr (X g))
-    → StepThd ℂ i E X (wrGbl g r ⨟ T) (E [ gid g ↦ E (rid r) ]) (updMem X g (doWr (X g) i)) T
+    → StepThd ℂ i E X (wrGbl g r ⨟ T) (E [ gid g ↦ E (rid r) ]) (updFun gidEq X g (doWr (X g) i)) T
 
 data StepProg (ℂ : Magma) : Envs (Carrier ℂ) → Mem → Prog ℂ → Envs (Carrier ℂ) → Mem → Prog ℂ → Set where
-  schd : ∀ i ℰ X P E' X' T'
-    → StepThd ℂ i (ℰ i) X (P i) E' X' T'
+  schd : ∀ i ℰ X P E T E' X' T'
+    → ℰ i ≡ E
+    → P i ≡ T
+    → StepThd ℂ i E X T E' X' T'
     → StepProg ℂ ℰ X P (updFun tidEq ℰ i E') X' (updFun tidEq P i T')
   sync : ∀ I ℰ X P
     → (p : canSync I P)
@@ -206,8 +221,10 @@ data StepProg* (ℂ : Magma) : Envs (Carrier ℂ) → Mem → Prog ℂ → Envs 
 data StepProgRefl (ℂ : Magma) : Envs (Carrier ℂ) → Mem → Prog ℂ → Envs (Carrier ℂ) → Mem → Prog ℂ → Set where
   refl : ∀ ℰ X P
     → StepProgRefl ℂ ℰ X P ℰ X P
-  schd : ∀ i ℰ X P E' X' T'
-    → StepThd ℂ i (ℰ i) X (P i) E' X' T'
+  schd : ∀ i ℰ X P E T E' X' T'
+    → ℰ i ≡ E
+    → P i ≡ T
+    → StepThd ℂ i E X T E' X' T'
     → StepProgRefl ℂ ℰ X P (updFun tidEq ℰ i E') X' (updFun tidEq P i T')
   sync : ∀ I ℰ X P
     → (p : canSync I P)
