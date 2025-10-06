@@ -65,7 +65,12 @@ instance
 TidSet = DecSet Tid
 
 !_ : Tid → TidSet
-(! i) j = not (Dec.does (Tid.val i ≟ Tid.val j))
+(! i) j = not (Dec.does (tidEq i j))
+
+∈! : (i j : Tid) → i ≢ j → i ∈ (! j)
+∈! i j i≢j with tidEq j i
+... | yes p = ⊥-elim (i≢j (sym p))
+... | no ¬p = refl
 
 REnv : Set → Set
 REnv A = Rid → A
@@ -108,11 +113,41 @@ Wr = Tid × TidSet
 
 -- Given (rd : Rd) for address g, if j ∈ rd i then i has performed a read of g since j last sync'ed with it
 noRacingRd : Tid → Rd → Set
-noRacingRd j rd = ∀ i → j ∉ rd i
+noRacingRd i rd = ∀ j → i ∉ rd j
 
 -- Given ((i , I) : Wr) for address g, if j ∈ I then i has performed a write of g since j last sync'ed with it
 noRacingWr : Tid → Wr → Set
-noRacingWr j (i , I) = j ∉ I
+noRacingWr i (j , I) = i ≡ j ⊎ i ∉ I
+
+yesRacingRd : Tid → Rd → Set
+yesRacingRd i rd = ∃[ j ] i ∈ rd j
+
+yesRacingWr : Tid → Wr → Set
+yesRacingWr i (j , I) = i ≢ j × i ∈ I
+
+¬noRacingRd→yesRacingRd : ∀ i rd → ¬ noRacingRd i rd → yesRacingRd i rd
+¬noRacingRd→yesRacingRd i rd p = lem .proj₁ , ¬∉→∈ i (rd (lem .proj₁)) (lem .proj₂)
+  where
+  lem : ∃[ j ] ¬ (i ∉ rd j)
+  lem = ¬∀→∃¬ p
+
+yesRacingRd→¬noRacingRd : ∀ i rd → yesRacingRd i rd → ¬ noRacingRd i rd
+yesRacingRd→¬noRacingRd i rd (j , p) q with p | q j
+... | p | q = ⊥-elim (false≢true (trans (sym q) p))
+
+¬noRacingWr→yesRacingWr : ∀ i wr → ¬ noRacingWr i wr → yesRacingWr i wr
+¬noRacingWr→yesRacingWr i (j , I) ¬p with tidEq i j | ∈-dec i I
+... | yes i≡j | yes i∈I = ⊥-elim (¬p (inj₁ i≡j))
+... | yes i≡j | no ¬i∈I = ⊥-elim (¬p (inj₁ i≡j))
+... | no i≢j | yes i∈I = i≢j , i∈I
+... | no i≢j | no ¬i∈I with I i
+... | true = ⊥-elim (¬i∈I refl)
+... | false = ⊥-elim (¬p (inj₂ refl))
+
+yesRacingWr→¬noRacingWr : ∀ i wr → yesRacingWr i wr → ¬ noRacingWr i wr
+yesRacingWr→¬noRacingWr i (j , I) (i≢j , i∈I) (inj₁ i≡j) = i≢j i≡j
+yesRacingWr→¬noRacingWr i (j , I) (i≢j , i∈I) (inj₂ i∉I) with i∈I | i∉I
+... | p | q = ⊥-elim (false≢true (trans (sym q) p))
 
 record MemEvs : Set where
   constructor evs
@@ -156,6 +191,9 @@ doRd x i = record x { rd = (MemEvs.rd x) [ i ↦ ! i ] }
 doWr : MemEvs → Tid → MemEvs
 doWr x i = record x { wr = i , ! i }
 
+doRd-comm : ∀ x {i j} → i ≢ j → doRd (doRd x i) j ≡ doRd (doRd x j) i
+doRd-comm x {i} {j} i≢j = MemEvs-≡ ([↦]-comm (MemEvs.rd x) i≢j (! i) (! j)) refl
+
 canSync : {ℂ : Magma} → TidSet → Prog ℂ → Set
 canSync I Ts = ∀ i → i ∈ I → Ts i ≡ return ⊎ ∃[ T ] Ts i ≡ sync I ⨟ T
 
@@ -188,16 +226,6 @@ syncMem I X g = evs (newRd (MemEvs.rd (X g))) (newWr (MemEvs.wr (X g)))
 
 CfgThd : Magma → Set
 CfgThd ℂ = Maybe (REnv (Carrier ℂ) × GEnv (Carrier ℂ) × Mem × Thd ℂ)
-
-cfgThdGetMem : ∀ {ℂ} → CfgThd ℂ → Maybe Mem
-cfgThdGetMem (just (R , G , X , T)) = just X
-cfgThdGetMem nothing = nothing
-
-cfgThdSetMem : ∀ {ℂ} → CfgThd ℂ → Maybe Mem → CfgThd ℂ
-cfgThdSetMem (just (R , G , X , T)) (just X') = just (R , G , X' , T)
-cfgThdSetMem nothing (just X') = nothing
-cfgThdSetMem (just (R , G , X , T)) nothing = nothing
-cfgThdSetMem nothing nothing = nothing
 
 CfgProg : Magma → Set
 CfgProg ℂ = Maybe (REnvs (Carrier ℂ) × GEnvs (Carrier ℂ) × Mem × Prog ℂ)
@@ -278,13 +306,13 @@ data StepProgRefl (ℂ : Magma) : CfgProg ℂ → CfgProg ℂ → Set where
     → Rs i ≡ R
     → Gs i ≡ G
     → Ts i ≡ T
-    → StepThdRefl ℂ i (just (R , G , X , T)) (just (R' , G' , X' , T'))
+    → StepThd ℂ i (just (R , G , X , T)) (just (R' , G' , X' , T'))
     → StepProgRefl ℂ (just (Rs , Gs , X , Ts)) (just (Rs [ i ↦ R' ] , Gs [ i ↦ G' ] , X' , Ts [ i ↦ T' ]))
   schdBad : ∀ i Rs Gs X Ts R G T
     → Rs i ≡ R
     → Gs i ≡ G
     → Ts i ≡ T
-    → StepThdRefl ℂ i (just (R , G , X , T)) nothing
+    → StepThd ℂ i (just (R , G , X , T)) nothing
     → StepProgRefl ℂ (just (Rs , Gs , X , Ts)) nothing
   sync : ∀ I Rs Gs X Ts
     → (p : canSync I Ts)
