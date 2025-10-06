@@ -1,11 +1,12 @@
 module KernelCheck.Util where
 
 open import Data.Bool using (Bool; true; false; not)
+open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 import Data.Sum
+open import Relation.Binary.Definitions using (DecidableEquality)
 open import Relation.Nullary.Decidable using (Dec; yes; no)
 open import Relation.Nullary.Negation using (¬_)
-open import Relation.Binary.Definitions using (DecidableEquality)
 
 open import Relation.Binary.PropositionalEquality
 
@@ -38,3 +39,6 @@ from-does-false A (no ¬p) _ = ¬p
 
 case : ∀ {A B : Set} {C : A ⊎ B → Set} → (x : A ⊎ B) → ((x : A) → C (inj₁ x)) → ((x : B) → C (inj₂ x)) → C x
 case {C = C} x f g = Data.Sum.[_,_] {C = C} f g x
+
+nothing≢just : ∀ {a} {A : Set a} {x : A} → nothing ≢ just x
+nothing≢just ()
