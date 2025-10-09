@@ -31,15 +31,46 @@ open import KernelCheck.DecSet
 <-Mem : Tid → Mem → Mem → Set
 <-Mem i X1 X2 = ∀ g → <-MemEvs i (X1 g) (X2 g)
 
-postulate
-  StepThd-<-Mem : ∀ {ℂ i R1 G1 X1 T1 R2 G2 X2 T2}
-    → StepThd ℂ i (just (R1 , G1 , X1 , T1)) (just (R2 , G2 , X2 , T2))
-    → ∀ j → <-Mem j X1 X2
+<-Mem-refl : ∀ j X → <-Mem j X X
+<-Mem-refl j X g = (λ z → z) , (λ z → z)
 
-  StepThd-mono : ∀ {ℂ i R G X1 X2 T}
-    → <-Mem i X1 X2
-    → StepThd ℂ i (just (R , G , X1 , T)) nothing
-    → StepThd ℂ i (just (R , G , X2 , T)) nothing
+<-Mem-doRd : ∀ i j X g → <-Mem i X (X [ g ↦ doRd (X g) j ])
+<-Mem-doRd i j X g g' with gidEq g g'
+... | yes refl = (λ x y → {!x y!}) , λ x → case x
+  (λ y → inj₁ (cast (cong (λ a → i ≡ a .proj₁) lem) y))
+  (λ y → inj₂ (cast (cong (λ a → a .proj₂ i ≡ false) lem) y))
+  where
+  lem : (X [ g ↦ doRd (X g) j ]) g .MemEvs.wr ≡ X g .MemEvs.wr
+  lem = cong MemEvs.wr ([↦]-simp-≡ X g (doRd (X g) j))
+... | no g≢g' = {!!} , {!!}
+
+<-Mem-doWr : ∀ i j X g → <-Mem i X (X [ g ↦ doWr (X g) j ])
+<-Mem-doWr = {!!}
+
+StepThd-<-Mem : ∀ {ℂ i R1 G1 X1 T1 R2 G2 X2 T2}
+  → StepThd ℂ i (just (R1 , G1 , X1 , T1)) (just (R2 , G2 , X2 , T2))
+  → ∀ j → <-Mem j X1 X2
+StepThd-<-Mem {X1 = X1} (const _ _ _ r c _) j = <-Mem-refl j X1
+StepThd-<-Mem {X1 = X1} (binOp _ _ _ r r1 r2 _) j = <-Mem-refl j X1
+StepThd-<-Mem {X1 = X1} (rdReg _ _ _ r1 r2 _) j = <-Mem-refl j X1
+StepThd-<-Mem {i = i} {X1 = X1} (rdGbl _ _ _ r g _ x) j = <-Mem-doRd j i X1 g
+StepThd-<-Mem {i = i} {X1 = X1} (wrGbl _ _ _ g r _ x x₁) j = <-Mem-doWr j i X1 g
+
+yesRacingRd-mono : ∀ i X X' g → <-Mem i X X' → yesRacingRd i (MemEvs.rd (X g)) → yesRacingRd i (MemEvs.rd (X' g))
+yesRacingRd-mono i X X' g p q = {!!}
+
+yesRacingWr-mono : ∀ i X X' g → <-Mem i X X' → yesRacingWr i (MemEvs.wr (X g)) → yesRacingWr i (MemEvs.wr (X' g))
+yesRacingWr-mono i X X' g p q = {!!}
+
+StepThd-mono : ∀ {ℂ i R G X1 X2 T}
+  → <-Mem i X1 X2
+  → StepThd ℂ i (just (R , G , X1 , T)) nothing
+  → StepThd ℂ i (just (R , G , X2 , T)) nothing
+StepThd-mono {i = i} {X1 = X1} {X2 = X2} p (rdGblBad _ _ _ r g T x) = rdGblBad _ _ _ r g T
+  (yesRacingWr→¬noRacingWr i (MemEvs.wr (X2 g)) (yesRacingWr-mono i X1 X2 g p (¬noRacingWr→yesRacingWr i (MemEvs.wr (X1 g)) x)))
+StepThd-mono {i = i} {X1 = X1} {X2 = X2} p (wrGblBad _ _ _ g r T x) = wrGblBad _ _ _ g r T (case x
+  (λ q → inj₁ (yesRacingRd→¬noRacingRd i (MemEvs.rd (X2 g)) (yesRacingRd-mono i X1 X2 g p (¬noRacingRd→yesRacingRd i (MemEvs.rd (X1 g)) q))))
+  (λ q → inj₂ (yesRacingWr→¬noRacingWr i (MemEvs.wr (X2 g)) (yesRacingWr-mono i X1 X2 g p (¬noRacingWr→yesRacingWr i (MemEvs.wr (X1 g)) q)))))
 
 StepThd-≢-comm : ∀ {ℂ i j R1 G1 T1 R1' G1' T1' R2 G2 T2 R2' G2' T2' X X'1 X'2}
   → i ≢ j
@@ -737,7 +768,32 @@ diamond {ℂ = ℂ} (schd i Rs Gs X Ts R G T R' G' X' T' x x₁ x₂ x₃) (schd
       (just ((Rs [ i₁ ↦ R'' ]) , (Gs [ i₁ ↦ G'' ]) , X'' , (Ts [ i₁ ↦ T'' ])))
       (just (a , b , X''' , c)))
     Rs≡ Gs≡ Ts≡
-diamond (schd i Rs Gs X Ts R G T R' G' X' T' x x₁ x₂ x₃) (schdBad i₁ .Rs .Gs .X .Ts R₁ G₁ T₁ x₄ x₅ x₆ x₇) = {!!}
+diamond {ℂ = ℂ} (schd i Rs Gs X Ts R G T R' G' X' T' x x₁ x₂ x₃) (schdBad i₁ .Rs .Gs .X .Ts R₁ G₁ T₁ x₄ x₅ x₆ x₇) with tidEq i i₁
+... | yes refl = ⊥-elim (nothing≢just (sym eq))
+  where
+  R≡ : R ≡ R₁
+  R≡ = trans (sym x) x₄
+
+  G≡ : G ≡ G₁
+  G≡ = trans (sym x₁) x₅
+
+  T≡ : T ≡ T₁
+  T≡ = trans (sym x₂) x₆
+
+  eq : just (R' , G' , X' , T') ≡ nothing
+  eq with R≡ | G≡ | T≡
+  ... | refl | refl | refl = StepThd-≡ x₃ x₇
+... | no i≢i₁ = nothing , lhs , refl nothing
+  where
+  lhsThd : StepThd ℂ i₁ (just (R₁ , G₁ , X' , T₁)) nothing
+  lhsThd = StepThd-mono (StepThd-<-Mem x₃ i₁) x₇
+
+  lhs : StepProgRefl ℂ (just ((Rs [ i ↦ R' ]) , (Gs [ i ↦ G' ]) , X' , (Ts [ i ↦ T' ]))) nothing
+  lhs = schdBad i₁ (Rs [ i ↦ R' ]) (Gs [ i ↦ G' ]) X' (Ts [ i ↦ T' ]) R₁ G₁ T₁
+    (trans ([↦]-simp-≢ Rs i i₁ R' i≢i₁) x₄)
+    (trans ([↦]-simp-≢ Gs i i₁ G' i≢i₁) x₅)
+    (trans ([↦]-simp-≢ Ts i i₁ T' i≢i₁) x₆)
+    lhsThd
 diamond (schd i Rs Gs X Ts R G T R' G' X' T' x x₁ x₂ x₃) (sync I .Rs .Gs .X .Ts p) = {!!}
 diamond (schdBad i Rs Gs X Ts R G T x x₁ x₂ x₃) (refl .(just (Rs , Gs , X , Ts))) = nothing , refl nothing , schdBad i Rs Gs X Ts R G T x x₁ x₂ x₃
 diamond (schdBad i Rs Gs X Ts R G T x x₁ x₂ x₃) (schd i₁ .Rs .Gs .X .Ts R₁ G₁ T₁ R' G' X' T' x₄ x₅ x₆ x₇) = {!!}
