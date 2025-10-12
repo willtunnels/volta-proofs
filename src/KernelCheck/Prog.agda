@@ -5,6 +5,7 @@ open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Empty using (⊥-elim)
 open import Data.Nat using (ℕ; zero; suc; _≟_)
 open import Data.Bool using (Bool; true; false; not; if_then_else_)
+import Data.Bool.Properties
 open import Data.Sum using (_⊎_; inj₁; inj₂)
 open import Data.Product using (Σ; _×_; _,_; proj₁; proj₂; ∃-syntax)
 open import Relation.Nullary.Decidable using (Dec; yes; no)
@@ -64,14 +65,6 @@ instance
 
 TidSet = DecSet Tid
 
-!_ : Tid → TidSet
-(! i) j = not (Dec.does (tidEq i j))
-
-∈! : (i j : Tid) → i ≢ j → i ∈ (! j)
-∈! i j i≢j with tidEq j i
-... | yes p = ⊥-elim (i≢j (sym p))
-... | no ¬p = refl
-
 REnv : Set → Set
 REnv A = Rid → A
 
@@ -113,27 +106,29 @@ Wr = Tid × TidSet
 
 -- Given (rd : Rd) for address g, if j ∈ rd i then i has performed a read of g since j last sync'ed with it
 noRacingRd : Tid → Rd → Set
-noRacingRd i rd = ∀ j → i ∉ rd j
+noRacingRd i rd = ∀ j → i ≡ j ⊎ i ∉ rd j
 
 -- Given ((i , I) : Wr) for address g, if j ∈ I then i has performed a write of g since j last sync'ed with it
 noRacingWr : Tid → Wr → Set
 noRacingWr i (j , I) = i ≡ j ⊎ i ∉ I
 
 yesRacingRd : Tid → Rd → Set
-yesRacingRd i rd = ∃[ j ] i ∈ rd j
+yesRacingRd i rd = ∃[ j ] i ≢ j × i ∈ rd j
 
 yesRacingWr : Tid → Wr → Set
 yesRacingWr i (j , I) = i ≢ j × i ∈ I
 
 ¬noRacingRd→yesRacingRd : ∀ i rd → ¬ noRacingRd i rd → yesRacingRd i rd
-¬noRacingRd→yesRacingRd i rd p = lem .proj₁ , ¬∉→∈ i (rd (lem .proj₁)) (lem .proj₂)
+¬noRacingRd→yesRacingRd i rd p = lem .proj₁ , ¬× (lem .proj₂) .proj₁ , ¬∉→∈ i (rd (lem .proj₁)) (¬× (lem .proj₂) .proj₂)
   where
-  lem : ∃[ j ] ¬ (i ∉ rd j)
+  lem : ∃[ j ] ¬ (i ≡ j ⊎ i ∉ rd j)
   lem = ¬∀→∃¬ p
 
+  ¬× : {A B : Set} → ¬ (A ⊎ B) → ¬ A × ¬ B
+  ¬× ¬AB = (λ x → ¬AB (inj₁ x)) , (λ x → ¬AB (inj₂ x))
+
 yesRacingRd→¬noRacingRd : ∀ i rd → yesRacingRd i rd → ¬ noRacingRd i rd
-yesRacingRd→¬noRacingRd i rd (j , p) q with p | q j
-... | p | q = ⊥-elim (false≢true (trans (sym q) p))
+yesRacingRd→¬noRacingRd i rd (j , p) q = case (q j) (p .proj₁) (λ x → ∉→¬∈ i (rd j) x (p .proj₂))
 
 ¬noRacingWr→yesRacingWr : ∀ i wr → ¬ noRacingWr i wr → yesRacingWr i wr
 ¬noRacingWr→yesRacingWr i (j , I) ¬p with tidEq i j | ∈-dec i I
@@ -186,13 +181,13 @@ abstract
     ... | no ¬p | no ¬q = refl
 
 doRd : MemEvs → Tid → MemEvs
-doRd x i = record x { rd = (MemEvs.rd x) [ i ↦ ! i ] }
+doRd x i = record x { rd = (MemEvs.rd x) [ i ↦ all ] }
 
 doWr : MemEvs → Tid → MemEvs
-doWr x i = record x { wr = i , ! i }
+doWr x i = record x { wr = i , all }
 
 doRd-comm : ∀ x {i j} → i ≢ j → doRd (doRd x i) j ≡ doRd (doRd x j) i
-doRd-comm x {i} {j} i≢j = MemEvs-≡ ([↦]-comm (MemEvs.rd x) i≢j (! i) (! j)) refl
+doRd-comm x {i} {j} i≢j = MemEvs-≡ ([↦]-comm (MemEvs.rd x) i≢j all all) refl
 
 canSync : {ℂ : Magma} → TidSet → Prog ℂ → Set
 canSync I Ts = ∀ i → i ∈ I → Ts i ≡ return ⊎ ∃[ T ] Ts i ≡ sync I ⨟ T
@@ -201,7 +196,7 @@ syncStep : {ℂ : Magma} (I : TidSet) (Ts : Prog ℂ) → canSync I Ts → Prog 
 syncStep I Ts p i with ∈-dec i I
 syncStep I Ts p i | yes q with p i q
 syncStep I Ts p i | yes q | inj₁ T = return
-syncStep I Ts p i | yes q | inj₂ T = proj₁ T
+syncStep I Ts p i | yes q | inj₂ T = T .proj₁
 syncStep I Ts p i | no  _ = Ts i
 
 syncEnvs : {A : Set} → TidSet → Mem → GEnvs A → GEnvs A
@@ -211,18 +206,43 @@ syncEnvs I X Gs i g with ∈-dec i I | ∈-dec (proj₁ (MemEvs.wr (X g))) I
 ... | no  _ | yes _ = Gs i g
 ... | no  _ | no  _ = Gs i g
 
-syncMem : TidSet → Mem → Mem
-syncMem I X g = evs (newRd (MemEvs.rd (X g))) (newWr (MemEvs.wr (X g)))
-  where
-  newRd : Rd → Rd
-  newRd rd i with ∈-dec i I
-  newRd rd i | yes _ = rd i - I
-  newRd rd i | no  _ = rd i
+syncMemRd : TidSet → Rd → Rd
+syncMemRd I rd i with ∈-dec i I
+... | yes _ = rd i - I
+... | no _ = rd i
 
-  newWr : Wr → Wr
-  newWr (i , J) with ∈-dec i I
-  newWr (i , J) | yes _ = i , J - I
-  newWr (i , J) | no  _ = i , J
+syncMemWr : TidSet → Wr → Wr
+syncMemWr I (i , J) with ∈-dec i I
+... | yes _ = i , J - I
+... | no _ = i , J
+
+syncMemRd-⊆ : ∀ I x i → syncMemRd I x i ⊆ x i
+syncMemRd-⊆ I x i j p with ∈-dec i I
+... | yes _ = ∧-elim1 (x i j) (not (I j)) p
+... | no _ = p
+
+syncMemRd-∉ : ∀ I x i j → j ∉ I → j ∈ x i → j ∈ syncMemRd I x i
+syncMemRd-∉ I x i j j∉I p with ∈-dec i I
+... | yes _ = ∧-intro (x i j) (not (I j)) (p , subst (λ a → not a ≡ true) (sym j∉I) refl)
+... | no _ = p
+
+syncMemWr-simp1 : ∀ I x → syncMemWr I x .proj₁ ≡ x .proj₁
+syncMemWr-simp1 I (i , J) with ∈-dec i I
+... | yes _ = refl
+... | no _ = refl
+
+syncMemWr-⊆ : ∀ I x → syncMemWr I x .proj₂ ⊆ x .proj₂
+syncMemWr-⊆ I (i , J) j p with ∈-dec i I
+... | yes _ = ∧-elim1 (J j) (not (I j)) p
+... | no _ = p
+
+syncMemWr-∉ : ∀ I x j → j ∉ I → j ∈ x .proj₂ → j ∈ syncMemWr I x .proj₂
+syncMemWr-∉ I (i , J) j j∉I p with ∈-dec i I
+... | yes _ = ∧-intro (J j) (not (I j)) (p , subst (λ a → not a ≡ true) (sym j∉I) refl)
+... | no _ = p
+
+syncMem : TidSet → Mem → Mem
+syncMem I X g = evs (syncMemRd I (MemEvs.rd (X g))) (syncMemWr I (MemEvs.wr (X g)))
 
 CfgThd : Magma → Set
 CfgThd ℂ = Maybe (REnv (Carrier ℂ) × GEnv (Carrier ℂ) × Mem × Thd ℂ)

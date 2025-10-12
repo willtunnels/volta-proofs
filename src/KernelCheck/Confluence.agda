@@ -3,10 +3,11 @@ module KernelCheck.Confluence where
 open import Function.Base using (_∘_)
 open import Data.Empty using (⊥-elim)
 open import Data.Nat using (ℕ; _≟_)
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂; map; map₁; map₂)
 open import Data.Maybe using (Maybe; just; nothing)
 import Data.Maybe.Properties
 open import Data.Bool using (Bool; true; false; not)
+import Data.Bool.Properties
 open import Data.Product using (_×_; _,_; proj₁; proj₂; ∃-syntax)
 import Data.Product.Properties
 open import Relation.Nullary.Decidable using (Dec; yes; no)
@@ -18,59 +19,143 @@ open import KernelCheck.Prog
 open import KernelCheck.Util
 open import KernelCheck.DecSet
 
-<-Rd : Tid → Rd → Rd → Set
-<-Rd i r1 r2 = noRacingRd i r2 → noRacingRd i r1
+≤-Rd : Tid → Rd → Rd → Set
+≤-Rd i r1 r2 = noRacingRd i r2 → noRacingRd i r1
 
-<-Wr : Tid → Wr → Wr → Set
-<-Wr i w1 w2 = noRacingWr i w2 → noRacingWr i w1
+≤-Wr : Tid → Wr → Wr → Set
+≤-Wr i w1 w2 = noRacingWr i w2 → noRacingWr i w1
 
-<-MemEvs : Tid → MemEvs → MemEvs → Set
-<-MemEvs i X1 X2 = <-Rd i (X1 .MemEvs.rd) (X2 .MemEvs.rd) × <-Wr i (X1 .MemEvs.wr) (X2 .MemEvs.wr)
+≤-MemEvs : Tid → MemEvs → MemEvs → Set
+≤-MemEvs i X1 X2 = ≤-Rd i (X1 .MemEvs.rd) (X2 .MemEvs.rd) × ≤-Wr i (X1 .MemEvs.wr) (X2 .MemEvs.wr)
 
--- X1 < X2 iff a race for i under X1 implies a race for i under X2
-<-Mem : Tid → Mem → Mem → Set
-<-Mem i X1 X2 = ∀ g → <-MemEvs i (X1 g) (X2 g)
+-- X1 ≤ X2 iff a race for i under X1 implies a race for i under X2
+≤-Mem : Tid → Mem → Mem → Set
+≤-Mem i X1 X2 = ∀ g → ≤-MemEvs i (X1 g) (X2 g)
 
-<-Mem-refl : ∀ j X → <-Mem j X X
-<-Mem-refl j X g = (λ z → z) , (λ z → z)
+≥-Mem : Tid → Mem → Mem → Set
+≥-Mem i X1 X2 = ≤-Mem i X2 X1
 
-<-Mem-doRd : ∀ i j X g → <-Mem i X (X [ g ↦ doRd (X g) j ])
-<-Mem-doRd i j X g g' with gidEq g g'
-... | yes refl = (λ x y → {!x y!}) , λ x → case x
-  (λ y → inj₁ (cast (cong (λ a → i ≡ a .proj₁) lem) y))
-  (λ y → inj₂ (cast (cong (λ a → a .proj₂ i ≡ false) lem) y))
+≤-Mem-refl : ∀ j X → ≤-Mem j X X
+≤-Mem-refl j X g = (λ z → z) , (λ z → z)
+
+≤-Mem-doRd : ∀ i j X g → ≤-Mem i X (X [ g ↦ doRd (X g) j ])
+≤-Mem-doRd i j X g g' with gidEq g g'
+... | yes refl = (λ p k → map₂ (lem-rd k) (p k)) , rhs
   where
-  lem : (X [ g ↦ doRd (X g) j ]) g .MemEvs.wr ≡ X g .MemEvs.wr
-  lem = cong MemEvs.wr ([↦]-simp-≡ X g (doRd (X g) j))
-... | no g≢g' = {!!} , {!!}
+  lem-rd : ∀ k → (X [ g ↦ doRd (X g) j ]) g .MemEvs.rd k i ≡ false → X g .MemEvs.rd k i ≡ false
+  lem-rd k p with tidEq k j
+  ... | yes refl = ⊥-elim (false≢true (sym (cast (cong (λ a → a i ≡ false) simp-rd) p)))
+    where
+    simp-rd : (X [ g ↦ doRd (X g) k ]) g .MemEvs.rd k ≡ all
+    simp-rd = (cong (λ a → a .MemEvs.rd k) ([↦]-simp-≡ X g (doRd (X g) k)))
+      ∙ [↦]-simp-≡ ((X g) .MemEvs.rd) k all
+  ... | no k≢j = cong (λ a → a i) (sym simp-rd) ∙ p
+    where
+    simp-rd : (X [ g ↦ doRd (X g) j ]) g .MemEvs.rd k ≡ X g .MemEvs.rd k
+    simp-rd = (cong (λ a → a .MemEvs.rd k) ([↦]-simp-≡ X g (doRd (X g) j)))
+      ∙ [↦]-simp-≢ ((X g) .MemEvs.rd) j k all (≢-sym k≢j)
 
-<-Mem-doWr : ∀ i j X g → <-Mem i X (X [ g ↦ doWr (X g) j ])
-<-Mem-doWr = {!!}
+  lem-wr : (X [ g ↦ doRd (X g) j ]) g .MemEvs.wr ≡ X g .MemEvs.wr
+  lem-wr = cong MemEvs.wr ([↦]-simp-≡ X g (doRd (X g) j))
 
-StepThd-<-Mem : ∀ {ℂ i R1 G1 X1 T1 R2 G2 X2 T2}
+  rhs = map
+    (λ y → cast (cong (λ a → i ≡ a .proj₁) lem-wr) y)
+    (λ y → cast (cong (λ a → a .proj₂ i ≡ false) lem-wr) y)
+... | no g≢g' = (λ p k → map₂ (lem-rd k) (p k)) , map f1 f2
+  where
+  simp-Xg' : (X [ g ↦ doRd (X g) j ]) g' ≡ X g'
+  simp-Xg' = [↦]-simp-≢ X g g' (doRd (X g) j) g≢g'
+
+  lem-rd : ∀ k → (X [ g ↦ doRd (X g) j ]) g' .MemEvs.rd k i ≡ false → X g' .MemEvs.rd k i ≡ false
+  lem-rd k p = cast (cong (λ a → a .MemEvs.rd k i ≡ false) simp-Xg') p
+
+  f1 = cast (cong (λ a → i ≡ a .MemEvs.wr .proj₁) simp-Xg')
+  f2 = cast (cong (λ a → a .MemEvs.wr .proj₂ i ≡ false) simp-Xg')
+
+≤-Mem-doWr : ∀ i j X g → i ≢ j → ≤-Mem i X (X [ g ↦ doWr (X g) j ])
+≤-Mem-doWr i j X g i≢j g' with gidEq g g'
+... | yes refl = (λ p k → map₂ (lem-rd k) (p k)) , map lem-wr1 lem-wr2
+  where
+  lem-rd : ∀ k → (X [ g ↦ doWr (X g) j ]) g .MemEvs.rd k i ≡ false → X g .MemEvs.rd k i ≡ false
+  lem-rd k p = (sym (cong (λ a → a .MemEvs.rd k i) ([↦]-simp-≡ X g (doWr (X g) j)))) ∙ p
+
+  X' = X [ g ↦ doWr (X g) j ]
+
+  simp-wr : X' g .MemEvs.wr ≡ (j , all)
+  simp-wr = cong MemEvs.wr ([↦]-simp-≡ X g (doWr (X g) j))
+
+  lem-wr1 : i ≡ X' g .MemEvs.wr .proj₁ → i ≡ X g .MemEvs.wr .proj₁
+  lem-wr1 p = ⊥-elim (i≢j (cast (cong (λ a → i ≡ a .proj₁) simp-wr) p))
+
+  lem-wr2 : X' g .MemEvs.wr .proj₂ i ≡ false → X g .MemEvs.wr .proj₂ i ≡ false
+  lem-wr2 p = ⊥-elim (false≢true ((sym p) ∙ cong (λ a → a .proj₂ i) simp-wr))
+... | no g≢g' = (λ p k → map₂ (lem-rd k) (p k)) , map f1 f2
+  where
+  simp-Xg' : (X [ g ↦ doWr (X g) j ]) g' ≡ X g'
+  simp-Xg' = [↦]-simp-≢ X g g' (doWr (X g) j) g≢g'
+
+  lem-rd : ∀ k → (X [ g ↦ doWr (X g) j ]) g' .MemEvs.rd k i ≡ false → X g' .MemEvs.rd k i ≡ false
+  lem-rd k p = cast (cong (λ a → a .MemEvs.rd k i ≡ false) simp-Xg') p
+
+  f1 = cast (cong (λ a → i ≡ a .MemEvs.wr .proj₁) simp-Xg')
+  f2 = cast (cong (λ a → a .MemEvs.wr .proj₂ i ≡ false) simp-Xg')
+
+StepThd-≤-Mem : ∀ {ℂ i R1 G1 X1 T1 R2 G2 X2 T2}
   → StepThd ℂ i (just (R1 , G1 , X1 , T1)) (just (R2 , G2 , X2 , T2))
-  → ∀ j → <-Mem j X1 X2
-StepThd-<-Mem {X1 = X1} (const _ _ _ r c _) j = <-Mem-refl j X1
-StepThd-<-Mem {X1 = X1} (binOp _ _ _ r r1 r2 _) j = <-Mem-refl j X1
-StepThd-<-Mem {X1 = X1} (rdReg _ _ _ r1 r2 _) j = <-Mem-refl j X1
-StepThd-<-Mem {i = i} {X1 = X1} (rdGbl _ _ _ r g _ x) j = <-Mem-doRd j i X1 g
-StepThd-<-Mem {i = i} {X1 = X1} (wrGbl _ _ _ g r _ x x₁) j = <-Mem-doWr j i X1 g
+  → ∀ j → j ≢ i → ≤-Mem j X1 X2
+StepThd-≤-Mem {X1 = X1} (const _ _ _ r c _) j i≢j = ≤-Mem-refl j X1
+StepThd-≤-Mem {X1 = X1} (binOp _ _ _ r r1 r2 _) j i≢j = ≤-Mem-refl j X1
+StepThd-≤-Mem {X1 = X1} (rdReg _ _ _ r1 r2 _) j i≢j = ≤-Mem-refl j X1
+StepThd-≤-Mem {i = i} {X1 = X1} (rdGbl _ _ _ r g _ x) j i≢j = ≤-Mem-doRd j i X1 g
+StepThd-≤-Mem {i = i} {X1 = X1} (wrGbl _ _ _ g r _ x x₁) j i≢j = ≤-Mem-doWr j i X1 g i≢j
 
-yesRacingRd-mono : ∀ i X X' g → <-Mem i X X' → yesRacingRd i (MemEvs.rd (X g)) → yesRacingRd i (MemEvs.rd (X' g))
-yesRacingRd-mono i X X' g p q = {!!}
+yesRacingRd-mono : ∀ i X X' g → ≤-Mem i X X' → yesRacingRd i (MemEvs.rd (X g)) → yesRacingRd i (MemEvs.rd (X' g))
+yesRacingRd-mono i X X' g p q = ¬noRacingRd→yesRacingRd i (MemEvs.rd (X' g)) (λ noRaceX' → yesRacingRd→¬noRacingRd i (MemEvs.rd (X g)) q (p g .proj₁ noRaceX'))
 
-yesRacingWr-mono : ∀ i X X' g → <-Mem i X X' → yesRacingWr i (MemEvs.wr (X g)) → yesRacingWr i (MemEvs.wr (X' g))
-yesRacingWr-mono i X X' g p q = {!!}
+yesRacingWr-mono : ∀ i X X' g → ≤-Mem i X X' → yesRacingWr i (MemEvs.wr (X g)) → yesRacingWr i (MemEvs.wr (X' g))
+yesRacingWr-mono i X X' g p q = ¬noRacingWr→yesRacingWr i (MemEvs.wr (X' g)) (λ noRaceX' → yesRacingWr→¬noRacingWr i (MemEvs.wr (X g)) q (p g .proj₂ noRaceX'))
 
-StepThd-mono : ∀ {ℂ i R G X1 X2 T}
-  → <-Mem i X1 X2
+StepThd-mono-nothing : ∀ {ℂ i R G X1 X2 T}
+  → ≤-Mem i X1 X2
   → StepThd ℂ i (just (R , G , X1 , T)) nothing
   → StepThd ℂ i (just (R , G , X2 , T)) nothing
-StepThd-mono {i = i} {X1 = X1} {X2 = X2} p (rdGblBad _ _ _ r g T x) = rdGblBad _ _ _ r g T
+StepThd-mono-nothing {i = i} {X1 = X1} {X2 = X2} p (rdGblBad _ _ _ r g T x) = rdGblBad _ _ _ r g T
   (yesRacingWr→¬noRacingWr i (MemEvs.wr (X2 g)) (yesRacingWr-mono i X1 X2 g p (¬noRacingWr→yesRacingWr i (MemEvs.wr (X1 g)) x)))
-StepThd-mono {i = i} {X1 = X1} {X2 = X2} p (wrGblBad _ _ _ g r T x) = wrGblBad _ _ _ g r T (case x
-  (λ q → inj₁ (yesRacingRd→¬noRacingRd i (MemEvs.rd (X2 g)) (yesRacingRd-mono i X1 X2 g p (¬noRacingRd→yesRacingRd i (MemEvs.rd (X1 g)) q))))
-  (λ q → inj₂ (yesRacingWr→¬noRacingWr i (MemEvs.wr (X2 g)) (yesRacingWr-mono i X1 X2 g p (¬noRacingWr→yesRacingWr i (MemEvs.wr (X1 g)) q)))))
+StepThd-mono-nothing {i = i} {X1 = X1} {X2 = X2} p (wrGblBad _ _ _ g r T x) = wrGblBad _ _ _ g r T (map f1 f2 x)
+  where
+  f1 = (λ q → yesRacingRd→¬noRacingRd i (MemEvs.rd (X2 g)) (yesRacingRd-mono i X1 X2 g p (¬noRacingRd→yesRacingRd i (MemEvs.rd (X1 g)) q)))
+  f2 = (λ q → yesRacingWr→¬noRacingWr i (MemEvs.wr (X2 g)) (yesRacingWr-mono i X1 X2 g p (¬noRacingWr→yesRacingWr i (MemEvs.wr (X1 g)) q)))
+
+StepThd-just-sync : ∀ {ℂ i I R G X T R' G' X' T'}
+  → i ∉ I
+  → StepThd ℂ i (just (R , G , X , T)) (just (R' , G' , X' , T'))
+  → StepThd ℂ i (just (R , G , syncMem I X , T)) (just (R' , G' , syncMem I X' , T'))
+StepThd-just-sync = {!!}
+
+StepThd-return-stuck : ∀ {ℂ i R G X T C} → StepThd ℂ i (just (R , G , X , T)) C → T ≢ return
+StepThd-return-stuck (const _ _ _ r c T) = λ ()
+StepThd-return-stuck (binOp _ _ _ r r1 r2 T) = λ ()
+StepThd-return-stuck (rdReg _ _ _ r1 r2 T) = λ ()
+StepThd-return-stuck (rdGbl _ _ _ r g T x) = λ ()
+StepThd-return-stuck (rdGblBad _ _ _ r g T x) = λ ()
+StepThd-return-stuck (wrGbl _ _ _ g r T x x₁) = λ ()
+StepThd-return-stuck (wrGblBad _ _ _ g r T x) = λ ()
+
+StepThd-sync-stuck : ∀ {ℂ i R G X T C} I T' → StepThd ℂ i (just (R , G , X , T)) C → T ≢ sync I ⨟ T'
+StepThd-sync-stuck _ _ (const _ _ _ r c T) = λ ()
+StepThd-sync-stuck _ _ (binOp _ _ _ r r1 r2 T) = λ ()
+StepThd-sync-stuck _ _ (rdReg _ _ _ r1 r2 T) = λ ()
+StepThd-sync-stuck _ _ (rdGbl _ _ _ r g T x) = λ ()
+StepThd-sync-stuck _ _ (rdGblBad _ _ _ r g T x) = λ ()
+StepThd-sync-stuck _ _ (wrGbl _ _ _ g r T x x₁) = λ ()
+StepThd-sync-stuck _ _ (wrGblBad _ _ _ g r T x) = λ ()
+
+StepThd-sync-step : ∀ {ℂ i I Ts R G X T C} → Ts i ≡ T → canSync I Ts → StepThd ℂ i (just (R , G , X , T)) C → i ∉ I
+StepThd-sync-step {i = i} {I = I} Ts≡ p x with ∉-dec i I
+... | yes i∉I = i∉I
+... | no i∈I = ⊥-elim (case (p i (Data.Bool.Properties.¬-not i∈I))
+  (λ q → StepThd-return-stuck x (sym Ts≡ ∙ q))
+  (λ q → StepThd-sync-stuck I (q .proj₁) x (sym Ts≡ ∙ q .proj₂)))
 
 StepThd-≢-comm : ∀ {ℂ i j R1 G1 T1 R1' G1' T1' R2 G2 T2 R2' G2' T2' X X'1 X'2}
   → i ≢ j
@@ -299,28 +384,28 @@ StepThd-≢-comm {ℂ} {i} {j} {R1} {G1} {T1} {R1'} {G1'} {T1'} {R2} {G2} {T2} {
 ... | yes refl = inj₂ (wrGblBad R2 G2 (X [ g ↦ doRd (X g) i ]) g r₁ T2' (inj₁ race1) , rdGblBad R1 G1 (X [ g ↦ doWr (X g) j ]) r g T1' race2)
   where
   race1 : ¬ noRacingRd j (MemEvs.rd ((X [ g ↦ doRd (X g) i ]) g))
-  race1 = yesRacingRd→¬noRacingRd j (MemEvs.rd ((X [ g ↦ doRd (X g) i ]) g)) (i , cast (cong (j ∈_) (sym lem)) (∈! j i (≢-sym i≢j)))
+  race1 = yesRacingRd→¬noRacingRd j (MemEvs.rd ((X [ g ↦ doRd (X g) i ]) g)) (i , ≢-sym i≢j , cast (cong (j ∈_) (sym lem)) refl)
     where
-    lem : MemEvs.rd ((X [ g ↦ doRd (X g) i ]) g) i ≡ ! i
+    lem : MemEvs.rd ((X [ g ↦ doRd (X g) i ]) g) i ≡ all
     lem = begin
         MemEvs.rd ((X [ g ↦ doRd (X g) i ]) g) i
       ≡⟨ cong (λ a → MemEvs.rd a i) ([↦]-simp-≡ _ _ _) ⟩
         MemEvs.rd (doRd (X g) i) i
       ≡⟨ [↦]-simp-≡ _ _ _ ⟩
-        ! i
+        all
       ∎
 
   race2 : ¬ noRacingWr i (MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g))
   race2 = yesRacingWr→¬noRacingWr i (MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g)) (fst , snd)
     where
-    lem : MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g) ≡ (j , ! j)
+    lem : MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g) ≡ (j , all)
     lem = cong MemEvs.wr ([↦]-simp-≡ _ _ _)
 
     fst : i ≢ MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g) .proj₁
     fst = cast (cong (i ≢_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₁))) i≢j
 
     snd : i ∈ MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g) .proj₂
-    snd = cast (cong (i ∈_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₂))) (∈! i j i≢j)
+    snd = cast (cong (i ∈_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₂))) refl
 ... | no g≢g₁ = inj₁ ((X [ g ↦ doRd (X g) i ]) [ g₁ ↦ doWr ((X [ g ↦ doRd (X g) i ]) g₁) j ] ,
                       wrGbl R2 G2 (X [ g ↦ doRd (X g) i ]) g₁ r₁ T2' noRace1 noRace2 ,
                       cast rhs-step≡ (rdGbl R1 G1 (X [ g₁ ↦ doWr (X g₁) j ]) r g T1' noRace3))
@@ -430,25 +515,25 @@ StepThd-≢-comm {ℂ} {i} {j} {R1} {G1} {T1} {R1'} {G1'} {T1'} {R2} {G2} {T2} {
   race1 : ¬ noRacingWr j (MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g))
   race1 = yesRacingWr→¬noRacingWr j (MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g)) (fst , snd)
     where
-    lem : MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g) ≡ (i , ! i)
+    lem : MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g) ≡ (i , all)
     lem = cong MemEvs.wr ([↦]-simp-≡ _ _ _)
 
     fst : j ≢ MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g) .proj₁
     fst = cast (cong (j ≢_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₁))) (≢-sym i≢j)
 
     snd : j ∈ MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g) .proj₂
-    snd = cast (cong (j ∈_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₂))) (∈! j i (≢-sym i≢j))
+    snd = cast (cong (j ∈_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₂))) refl
 
   race2 : ¬ noRacingRd i (MemEvs.rd ((X [ g ↦ doRd (X g) j ]) g))
-  race2 = yesRacingRd→¬noRacingRd i (MemEvs.rd ((X [ g ↦ doRd (X g) j ]) g)) (j , cast (cong (i ∈_) (sym lem)) (∈! i j i≢j))
+  race2 = yesRacingRd→¬noRacingRd i (MemEvs.rd ((X [ g ↦ doRd (X g) j ]) g)) (j , i≢j , cast (cong (i ∈_) (sym lem)) refl)
     where
-    lem : MemEvs.rd ((X [ g ↦ doRd (X g) j ]) g) j ≡ ! j
+    lem : MemEvs.rd ((X [ g ↦ doRd (X g) j ]) g) j ≡ all
     lem = begin
         MemEvs.rd ((X [ g ↦ doRd (X g) j ]) g) j
       ≡⟨ cong (λ a → MemEvs.rd a j) ([↦]-simp-≡ _ _ _) ⟩
         MemEvs.rd (doRd (X g) j) j
       ≡⟨ [↦]-simp-≡ _ _ _ ⟩
-        ! j
+        all
       ∎
 ... | no g≢g₁ = inj₁ ((X [ g ↦ doWr (X g) i ]) [ g₁ ↦ doRd ((X [ g ↦ doWr (X g) i ]) g₁) j ] ,
                       rdGbl R2 G2 (X [ g ↦ doWr (X g) i ]) r₁ g₁ T2' noRace1 ,
@@ -547,26 +632,26 @@ StepThd-≢-comm {ℂ} {i} {j} {R1} {G1} {T1} {R1'} {G1'} {T1'} {R2} {G2} {T2} {
   race1 : ¬ noRacingWr j (MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g))
   race1 = yesRacingWr→¬noRacingWr j (MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g)) (fst , snd)
     where
-    lem : MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g) ≡ (i , ! i)
+    lem : MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g) ≡ (i , all)
     lem = cong MemEvs.wr ([↦]-simp-≡ _ _ _)
 
     fst : j ≢ MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g) .proj₁
     fst = cast (cong (j ≢_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₁))) (≢-sym i≢j)
 
     snd : j ∈ MemEvs.wr ((X [ g ↦ doWr (X g) i ]) g) .proj₂
-    snd = cast (cong (j ∈_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₂))) (∈! j i (≢-sym i≢j))
+    snd = cast (cong (j ∈_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₂))) refl
 
   race2 : ¬ noRacingWr i (MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g))
   race2 = yesRacingWr→¬noRacingWr i (MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g)) (fst , snd)
     where
-    lem : MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g) ≡ (j , ! j)
+    lem : MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g) ≡ (j , all)
     lem = cong MemEvs.wr ([↦]-simp-≡ _ _ _)
 
     fst : i ≢ MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g) .proj₁
     fst = cast (cong (i ≢_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₁))) i≢j
 
     snd : i ∈ MemEvs.wr ((X [ g ↦ doWr (X g) j ]) g) .proj₂
-    snd = cast (cong (i ∈_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₂))) (∈! i j i≢j)
+    snd = cast (cong (i ∈_) (sym (Data.Product.Properties.×-≡,≡←≡ lem .proj₂))) refl
 ... | no g≢g₁ = inj₁ ((X [ g ↦ doWr (X g) i ]) [ g₁ ↦ doWr ((X [ g ↦ doWr (X g) i ]) g₁) j ] ,
                       wrGbl R2 G2 (X [ g ↦ doWr (X g) i ]) g₁ r₁ T2' noRace1 noRace2 ,
                       cast rhs-step≡ (wrGbl R1 G1 (X [ g₁ ↦ doWr (X g₁) j ]) g r T1' noRace3 noRace4))
@@ -678,6 +763,43 @@ StepThd-≡ (wrGbl R G X g r T x x₁) (wrGblBad .R .G .X .g .r .T x₂) = ⊥-e
 StepThd-≡ (wrGblBad R G X g r T x) (wrGbl .R .G .X .g .r .T x₁ x₂) = ⊥-elim (case x (λ y → y x₁) (λ y → y x₂))
 StepThd-≡ (wrGblBad R G X g r T x) (wrGblBad .R .G .X .g .r .T x₁) = refl
 
+syncEnvs-∉ : ∀ {A} i I X (Gs : GEnvs A) → i ∉ I → (syncEnvs I X Gs) i ≡ Gs i
+syncEnvs-∉ i I X Gs i∉I = funext lem
+  where
+  lem : (g : Gid) → syncEnvs I X Gs i g ≡ Gs i g
+  lem g with ∈-dec i I | ∈-dec (proj₁ (MemEvs.wr (X g))) I
+  ... | yes i∈I | yes _ = ⊥-elim ((∉→¬∈ i I i∉I) i∈I)
+  ... | yes i∈I | no _ = ⊥-elim ((∉→¬∈ i I i∉I) i∈I)
+  ... | no _ | yes _ = refl
+  ... | no _ | no _ = refl
+
+syncStep-∉ : ∀ {ℂ} i I (Ts : Prog ℂ) p → i ∉ I → (syncStep I Ts p) i ≡ Ts i
+syncStep-∉ i I Ts p i∉I with ∈-dec i I
+... | yes i∈I = ⊥-elim ((∉→¬∈ i I i∉I) i∈I)
+... | no _ = refl
+
+syncMem-≤-Mem : ∀ i I X → i ∉ I → ≤-Mem i X (syncMem I X)
+syncMem-≤-Mem i I X i∉I g = lem-rd , lem-wr
+  where
+  lem-rd : ≤-Rd i (X g .MemEvs.rd) (syncMem I X g .MemEvs.rd)
+  lem-rd p j = map₂ (∈→∈-flip i (X g .MemEvs.rd j) (syncMem I X g .MemEvs.rd j) (syncMemRd-∉ I (X g .MemEvs.rd) j i i∉I)) (p j)
+
+  lem-wr : ≤-Wr i (X g .MemEvs.wr) (syncMem I X g .MemEvs.wr)
+  lem-wr = map
+    (λ p → p ∙ syncMemWr-simp1 I (X g .MemEvs.wr))
+    (∈→∈-flip i (X g .MemEvs.wr .proj₂) (syncMemWr I (X g .MemEvs.wr) .proj₂) (syncMemWr-∉ I (X g .MemEvs.wr) i i∉I))
+
+syncMem-≥-Mem : ∀ i I X → i ∉ I → ≥-Mem i X (syncMem I X)
+syncMem-≥-Mem i I X i∉I g = lem-rd , lem-wr
+  where
+  lem-rd : ≤-Rd i (syncMem I X g .MemEvs.rd) (X g .MemEvs.rd)
+  lem-rd p j = map₂ (∈→∈-flip i (syncMem I X g .MemEvs.rd j) (X g .MemEvs.rd j) (syncMemRd-⊆ I (MemEvs.rd (X g)) j i)) (p j)
+
+  lem-wr : ≤-Wr i (syncMem I X g .MemEvs.wr) (X g .MemEvs.wr)
+  lem-wr = map
+    (λ p → p ∙ sym (syncMemWr-simp1 I (X g .MemEvs.wr)))
+    (∈→∈-flip i (syncMem I X g .MemEvs.wr .proj₂) (X g .MemEvs.wr .proj₂) (syncMemWr-⊆ I (MemEvs.wr (X g)) i))
+
 diamond : ∀ {ℂ C C1 C2}
   → StepProgRefl ℂ C C1
   → StepProgRefl ℂ C C2
@@ -786,7 +908,7 @@ diamond {ℂ = ℂ} (schd i Rs Gs X Ts R G T R' G' X' T' x x₁ x₂ x₃) (schd
 ... | no i≢i₁ = nothing , lhs , refl nothing
   where
   lhsThd : StepThd ℂ i₁ (just (R₁ , G₁ , X' , T₁)) nothing
-  lhsThd = StepThd-mono (StepThd-<-Mem x₃ i₁) x₇
+  lhsThd = StepThd-mono-nothing (StepThd-≤-Mem x₃ i₁ (≢-sym i≢i₁)) x₇
 
   lhs : StepProgRefl ℂ (just ((Rs [ i ↦ R' ]) , (Gs [ i ↦ G' ]) , X' , (Ts [ i ↦ T' ]))) nothing
   lhs = schdBad i₁ (Rs [ i ↦ R' ]) (Gs [ i ↦ G' ]) X' (Ts [ i ↦ T' ]) R₁ G₁ T₁
@@ -794,14 +916,63 @@ diamond {ℂ = ℂ} (schd i Rs Gs X Ts R G T R' G' X' T' x x₁ x₂ x₃) (schd
     (trans ([↦]-simp-≢ Gs i i₁ G' i≢i₁) x₅)
     (trans ([↦]-simp-≢ Ts i i₁ T' i≢i₁) x₆)
     lhsThd
+diamond {ℂ = ℂ} (schdBad i Rs Gs X Ts R G T x x₁ x₂ x₃) (schd i₁ .Rs .Gs .X .Ts R₁ G₁ T₁ R' G' X' T' x₄ x₅ x₆ x₇) with tidEq i i₁
+... | yes refl = ⊥-elim (nothing≢just (sym eq))
+  where
+  R≡ : R ≡ R₁
+  R≡ = trans (sym x) x₄
+
+  G≡ : G ≡ G₁
+  G≡ = trans (sym x₁) x₅
+
+  T≡ : T ≡ T₁
+  T≡ = trans (sym x₂) x₆
+
+  eq : just (R' , G' , X' , T') ≡ nothing
+  eq with R≡ | G≡ | T≡
+  ... | refl | refl | refl = StepThd-≡ x₇ x₃
+... | no i≢i₁ = nothing , refl nothing , rhs
+  where
+  rhsThd : StepThd ℂ i (just (R , G , X' , T)) nothing
+  rhsThd = StepThd-mono-nothing (StepThd-≤-Mem x₇ i i≢i₁) x₃
+
+  rhs : StepProgRefl ℂ (just ((Rs [ i₁ ↦ R' ]) , (Gs [ i₁ ↦ G' ]) , X' , (Ts [ i₁ ↦ T' ]))) nothing
+  rhs = schdBad i (Rs [ i₁ ↦ R' ]) (Gs [ i₁ ↦ G' ]) X' (Ts [ i₁ ↦ T' ]) R G T
+    (trans ([↦]-simp-≢ Rs i₁ i R' (≢-sym i≢i₁)) x)
+    (trans ([↦]-simp-≢ Gs i₁ i G' (≢-sym i≢i₁)) x₁)
+    (trans ([↦]-simp-≢ Ts i₁ i T' (≢-sym i≢i₁)) x₂)
+    rhsThd
 diamond (schd i Rs Gs X Ts R G T R' G' X' T' x x₁ x₂ x₃) (sync I .Rs .Gs .X .Ts p) = {!!}
+  where
+  i∉I : i ∉ I
+  i∉I = StepThd-sync-step x₂ p x₃
+diamond (sync I Rs Gs X Ts p) (schd i .Rs .Gs .X .Ts R G T R' G' X' T' x x₁ x₂ x₃) = {!!}
+  where
+  i∉I : i ∉ I
+  i∉I = StepThd-sync-step x₂ p x₃
 diamond (schdBad i Rs Gs X Ts R G T x x₁ x₂ x₃) (refl .(just (Rs , Gs , X , Ts))) = nothing , refl nothing , schdBad i Rs Gs X Ts R G T x x₁ x₂ x₃
-diamond (schdBad i Rs Gs X Ts R G T x x₁ x₂ x₃) (schd i₁ .Rs .Gs .X .Ts R₁ G₁ T₁ R' G' X' T' x₄ x₅ x₆ x₇) = {!!}
 diamond (schdBad i Rs Gs X Ts R G T x x₁ x₂ x₃) (schdBad i₁ .Rs .Gs .X .Ts R₁ G₁ T₁ x₄ x₅ x₆ x₇) = nothing , refl nothing , refl nothing
-diamond (schdBad i Rs Gs X Ts R G T x x₁ x₂ x₃) (sync I .Rs .Gs .X .Ts p) = {!!}
+diamond {ℂ = ℂ} (schdBad i Rs Gs X Ts R G T x x₁ x₂ x₃) (sync I .Rs .Gs .X .Ts p) = nothing , refl nothing , rhs
+  where
+  i∉I : i ∉ I
+  i∉I = StepThd-sync-step x₂ p x₃
+
+  rhs : StepProgRefl ℂ (just (Rs , syncEnvs I X Gs , syncMem I X , syncStep I Ts p)) nothing
+  rhs = schdBad i Rs (syncEnvs I X Gs) (syncMem I X) (syncStep I Ts p) R G T x
+    (syncEnvs-∉ i I X Gs i∉I ∙ x₁)
+    (syncStep-∉ i I Ts p i∉I ∙ x₂)
+    (StepThd-mono-nothing (syncMem-≤-Mem i I X i∉I) x₃)
+diamond {ℂ = ℂ} (sync I Rs Gs X Ts p) (schdBad i .Rs .Gs .X .Ts R G T x x₁ x₂ x₃) = nothing , lhs , refl nothing
+  where
+  i∉I : i ∉ I
+  i∉I = StepThd-sync-step x₂ p x₃
+
+  lhs : StepProgRefl ℂ (just (Rs , syncEnvs I X Gs , syncMem I X , syncStep I Ts p)) nothing
+  lhs = schdBad i Rs (syncEnvs I X Gs) (syncMem I X) (syncStep I Ts p) R G T x
+    (syncEnvs-∉ i I X Gs i∉I ∙ x₁)
+    (syncStep-∉ i I Ts p i∉I ∙ x₂)
+    (StepThd-mono-nothing (syncMem-≤-Mem i I X i∉I) x₃)
 diamond (sync I Rs Gs X Ts p) (refl .(just (Rs , Gs , X , Ts))) = just (Rs , syncEnvs I X Gs , syncMem I X , syncStep I Ts p) ,
                                                                   refl (just (Rs , syncEnvs I X Gs , syncMem I X , syncStep I Ts p)) ,
                                                                   sync I Rs Gs X Ts p
-diamond (sync I Rs Gs X Ts p) (schd i .Rs .Gs .X .Ts R G T R' G' X' T' x x₁ x₂ x₃) = {!!}
-diamond (sync I Rs Gs X Ts p) (schdBad i .Rs .Gs .X .Ts R G T x x₁ x₂ x₃) = {!!}
 diamond (sync I Rs Gs X Ts p) (sync I₁ .Rs .Gs .X .Ts p₁) = {!!}
