@@ -44,6 +44,9 @@ infixr 30 _∙_
 cong₃ : ∀ {a b c d} {A : Set a} {B : Set b} {C : Set c} {D : Set d} (f : A → B → C → D) {x1 x2 y1 y2 z1 z2} → x1 ≡ x2 → y1 ≡ y2 → z1 ≡ z2 → f x1 y1 z1 ≡ f x2 y2 z2
 cong₃ f refl refl refl = refl
 
+cong₄ : ∀ {a b c d e} {A : Set a} {B : Set b} {C : Set c} {D : Set d} {E : Set e} (f : A → B → C → D → E) {x1 x2 y1 y2 z1 z2 w1 w2} → x1 ≡ x2 → y1 ≡ y2 → z1 ≡ z2 → w1 ≡ w2 → f x1 y1 z1 w1 ≡ f x2 y2 z2 w2
+cong₄ f refl refl refl refl = refl
+
 cast : ∀ {a} {A B : Set a} → A ≡ B → A → B
 cast refl x = x
 

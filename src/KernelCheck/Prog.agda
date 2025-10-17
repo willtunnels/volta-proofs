@@ -1,4 +1,3 @@
-{-# OPTIONS --allow-unsolved-metas #-}
 module KernelCheck.Prog where
 
 open import Axiom.UniquenessOfIdentityProofs.WithK
@@ -8,8 +7,9 @@ open import Data.Empty using (⊥-elim)
 open import Data.Nat using (ℕ; zero; suc; _≟_)
 open import Data.Bool using (Bool; true; false; not; if_then_else_)
 import Data.Bool.Properties
-open import Data.Sum using (_⊎_; inj₁; inj₂)
+open import Data.Sum using (_⊎_; inj₁; inj₂; map; map₁; map₂)
 open import Data.Product using (Σ; _×_; _,_; proj₁; proj₂; ∃-syntax)
+import Data.Product.Properties
 open import Relation.Nullary.Decidable using (Dec; yes; no)
 open import Relation.Binary.Definitions using (DecidableEquality)
 open import Relation.Nullary.Negation using (¬_)
@@ -198,8 +198,105 @@ doWr x i = record x { wr = i , all }
 doRd-comm : ∀ x {i j} → i ≢ j → doRd (doRd x i) j ≡ doRd (doRd x j) i
 doRd-comm x {i} {j} i≢j = MemEvs-≡ ([↦]-comm (MemEvs.rd x) i≢j all all) refl
 
+doRd-getWr : ∀ X (g g' : Gid) i → (X [ g ↦ doRd (X g) i ]) g' .MemEvs.wr ≡ X g' .MemEvs.wr
+doRd-getWr X g g' i with gidEq g g'
+... | yes refl = cong MemEvs.wr ([↦]-simp-≡ X g (doRd (X g) i))
+... | no g≢g' = cong MemEvs.wr ([↦]-simp-≢ X g g' (doRd (X g) i) g≢g')
+
 doRd-noRace : ∀ i j g g' (X : Mem) → noRacingWr i ((X [ g ↦ doRd (X g) j ]) g' .MemEvs.wr) → noRacingWr i (X g' .MemEvs.wr)
-doRd-noRace i j g g' X p = {!!}
+doRd-noRace i j g g' X p = cast (cong (λ a → noRacingWr i a) (doRd-getWr X g g' j)) p
+
+≤-Rd : Tid → Rd → Rd → Set
+≤-Rd i r1 r2 = noRacingRd i r2 → noRacingRd i r1
+
+≤-Wr : Tid → Wr → Wr → Set
+≤-Wr i w1 w2 = noRacingWr i w2 → noRacingWr i w1
+
+≤-MemEvs : Tid → MemEvs → MemEvs → Set
+≤-MemEvs i X1 X2 = ≤-Rd i (X1 .MemEvs.rd) (X2 .MemEvs.rd) × ≤-Wr i (X1 .MemEvs.wr) (X2 .MemEvs.wr)
+
+-- X1 ≤ X2 iff a race for i under X1 implies a race for i under X2
+≤-Mem : Tid → Mem → Mem → Set
+≤-Mem i X1 X2 = ∀ g → ≤-MemEvs i (X1 g) (X2 g)
+
+≥-Mem : Tid → Mem → Mem → Set
+≥-Mem i X1 X2 = ≤-Mem i X2 X1
+
+≤-Mem-refl : ∀ j X → ≤-Mem j X X
+≤-Mem-refl j X g = (λ z → z) , (λ z → z)
+
+≤-Mem-doRd : ∀ i j X g → ≤-Mem i X (X [ g ↦ doRd (X g) j ])
+≤-Mem-doRd i j X g g' with gidEq g g'
+... | yes refl = (λ p k → map₂ (lem-rd k) (p k)) , rhs
+  where
+  lem-rd : ∀ k → (X [ g ↦ doRd (X g) j ]) g .MemEvs.rd k i ≡ false → X g .MemEvs.rd k i ≡ false
+  lem-rd k p with tidEq k j
+  ... | yes refl = ⊥-elim (false≢true (sym (cast (cong (λ a → a i ≡ false) simp-rd) p)))
+    where
+    simp-rd : (X [ g ↦ doRd (X g) k ]) g .MemEvs.rd k ≡ all
+    simp-rd = (cong (λ a → a .MemEvs.rd k) ([↦]-simp-≡ X g (doRd (X g) k)))
+      ∙ [↦]-simp-≡ ((X g) .MemEvs.rd) k all
+  ... | no k≢j = cong (λ a → a i) (sym simp-rd) ∙ p
+    where
+    simp-rd : (X [ g ↦ doRd (X g) j ]) g .MemEvs.rd k ≡ X g .MemEvs.rd k
+    simp-rd = (cong (λ a → a .MemEvs.rd k) ([↦]-simp-≡ X g (doRd (X g) j)))
+      ∙ [↦]-simp-≢ ((X g) .MemEvs.rd) j k all (≢-sym k≢j)
+
+  lem-wr : (X [ g ↦ doRd (X g) j ]) g .MemEvs.wr ≡ X g .MemEvs.wr
+  lem-wr = cong MemEvs.wr ([↦]-simp-≡ X g (doRd (X g) j))
+
+  rhs = map
+    (λ y → cast (cong (λ a → i ≡ a .proj₁) lem-wr) y)
+    (λ y → cast (cong (λ a → a .proj₂ i ≡ false) lem-wr) y)
+... | no g≢g' = (λ p k → map₂ (lem-rd k) (p k)) , map f1 f2
+  where
+  simp-Xg' : (X [ g ↦ doRd (X g) j ]) g' ≡ X g'
+  simp-Xg' = [↦]-simp-≢ X g g' (doRd (X g) j) g≢g'
+
+  lem-rd : ∀ k → (X [ g ↦ doRd (X g) j ]) g' .MemEvs.rd k i ≡ false → X g' .MemEvs.rd k i ≡ false
+  lem-rd k p = cast (cong (λ a → a .MemEvs.rd k i ≡ false) simp-Xg') p
+
+  f1 = cast (cong (λ a → i ≡ a .MemEvs.wr .proj₁) simp-Xg')
+  f2 = cast (cong (λ a → a .MemEvs.wr .proj₂ i ≡ false) simp-Xg')
+
+≤-Mem-doWr-other : ∀ i j X g → i ≢ j → ≤-Mem i X (X [ g ↦ doWr (X g) j ])
+≤-Mem-doWr-other i j X g i≢j g' with gidEq g g'
+... | yes refl = (λ p k → map₂ (lem-rd k) (p k)) , map lem-wr1 lem-wr2
+  where
+  lem-rd : ∀ k → (X [ g ↦ doWr (X g) j ]) g .MemEvs.rd k i ≡ false → X g .MemEvs.rd k i ≡ false
+  lem-rd k p = (sym (cong (λ a → a .MemEvs.rd k i) ([↦]-simp-≡ X g (doWr (X g) j)))) ∙ p
+
+  X' = X [ g ↦ doWr (X g) j ]
+
+  simp-wr : X' g .MemEvs.wr ≡ (j , all)
+  simp-wr = cong MemEvs.wr ([↦]-simp-≡ X g (doWr (X g) j))
+
+  lem-wr1 : i ≡ X' g .MemEvs.wr .proj₁ → i ≡ X g .MemEvs.wr .proj₁
+  lem-wr1 p = ⊥-elim (i≢j (cast (cong (λ a → i ≡ a .proj₁) simp-wr) p))
+
+  lem-wr2 : X' g .MemEvs.wr .proj₂ i ≡ false → X g .MemEvs.wr .proj₂ i ≡ false
+  lem-wr2 p = ⊥-elim (false≢true ((sym p) ∙ cong (λ a → a .proj₂ i) simp-wr))
+... | no g≢g' = (λ p k → map₂ (lem-rd k) (p k)) , map f1 f2
+  where
+  simp-Xg' : (X [ g ↦ doWr (X g) j ]) g' ≡ X g'
+  simp-Xg' = [↦]-simp-≢ X g g' (doWr (X g) j) g≢g'
+
+  lem-rd : ∀ k → (X [ g ↦ doWr (X g) j ]) g' .MemEvs.rd k i ≡ false → X g' .MemEvs.rd k i ≡ false
+  lem-rd k p = cast (cong (λ a → a .MemEvs.rd k i ≡ false) simp-Xg') p
+
+  f1 = cast (cong (λ a → i ≡ a .MemEvs.wr .proj₁) simp-Xg')
+  f2 = cast (cong (λ a → a .MemEvs.wr .proj₂ i ≡ false) simp-Xg')
+
+≤-Mem-doWr-this : ∀ (i : Tid) (X : Mem) (g g' : Gid) → g ≢ g' → ≤-MemEvs i (X g') ((X [ g ↦ doWr (X g) i ]) g')
+≤-Mem-doWr-this i X g g' g≢g' =
+  (λ noRace j → cast (cong (λ a → i ≡ j ⊎ (i ∉ a .MemEvs.rd j)) ([↦]-simp-≢ X g g' (doWr (X g) i) g≢g')) (noRace j)) ,
+  (λ noRace → cast (cong (λ a → noRacingWr i (a .MemEvs.wr)) ([↦]-simp-≢ X g g' (doWr (X g) i) g≢g')) noRace)
+
+yesRacingRd-mono : ∀ i X X' g → ≤-Mem i X X' → yesRacingRd i (MemEvs.rd (X g)) → yesRacingRd i (MemEvs.rd (X' g))
+yesRacingRd-mono i X X' g p q = ¬noRacingRd→yesRacingRd i (MemEvs.rd (X' g)) (λ noRaceX' → yesRacingRd→¬noRacingRd i (MemEvs.rd (X g)) q (p g .proj₁ noRaceX'))
+
+yesRacingWr-mono : ∀ i X X' g → ≤-Mem i X X' → yesRacingWr i (MemEvs.wr (X g)) → yesRacingWr i (MemEvs.wr (X' g))
+yesRacingWr-mono i X X' g p q = ¬noRacingWr→yesRacingWr i (MemEvs.wr (X' g)) (λ noRaceX' → yesRacingWr→¬noRacingWr i (MemEvs.wr (X g)) q (p g .proj₂ noRaceX'))
 
 canSync : {ℂ : Magma} → TidSet → Prog ℂ → Set
 canSync I Ts = ∀ i → i ∈ I → Ts i ≡ return ⊎ ∃[ T ] Ts i ≡ sync I ⨟ T
@@ -266,13 +363,6 @@ opaque
 CfgThd : Magma → Set
 CfgThd ℂ = Maybe (REnv (Carrier ℂ) × GEnv (Carrier ℂ) × Mem × Thd ℂ)
 
-CfgThd-≡-elim : ∀ {ℂ}
-  {R  : REnv (Carrier ℂ)} {G  : GEnv (Carrier ℂ)} {X  : Mem} {T  : Thd ℂ}
-  {R' : REnv (Carrier ℂ)} {G' : GEnv (Carrier ℂ)} {X' : Mem} {T' : Thd ℂ}
-  → just (R , G , X , T) ≡ just (R' , G' , X' , T')
-  → R ≡ R' × G ≡ G' × X ≡ X' × T ≡ T'
-CfgThd-≡-elim refl = refl , refl , refl , refl
-
 CfgProg : Magma → Set
 CfgProg ℂ = Maybe (REnvs (Carrier ℂ) × Σ (GEnvs (Carrier ℂ)) λ Gs → Σ Mem λ X → WellSynced ℂ Gs X × Prog ℂ)
 
@@ -308,60 +398,74 @@ opaque
   unfolding WellSynced
 
   doRd-WS : ∀ ℂ (Gs : GEnvs (Carrier ℂ)) X g i → WellSynced ℂ Gs X → WellSynced ℂ Gs (X [ g ↦ doRd (X g) i ])
-  doRd-WS ℂ Gs X g i = {!!}
+  doRd-WS ℂ Gs X g i ws j g' noRace = ws j g' (doRd-noRace j i g g' X noRace) ∙ cong (λ a → Gs a g') (cong proj₁ (sym (doRd-getWr X g g' i)))
 
-  doWr-WS : ∀ ℂ (Gs : GEnvs (Carrier ℂ)) X g1 g2 i j →
-      WellSynced ℂ Gs (X [ g1 ↦ doWr (X g1) i ]) →
-      WellSynced ℂ Gs (X [ g2 ↦ doWr (X g2) j ]) →
-      WellSynced ℂ Gs
-        ((X [ g1 ↦ doWr (X g1) i ]) [ g2 ↦ doWr ((X [ g1 ↦ doWr (X g1) i ]) g2) j ])
-  doWr-WS ℂ Gs X g1 g2 i j ws1 ws2 k g = ?
-
-  StepThd-WS-lem : ∀ ℂ i Gs X G
+  expand-WS : ∀ ℂ i Gs X G
     → Gs i ≡ G
     → WellSynced ℂ Gs X
     → WellSynced ℂ (Gs [ i ↦ G ]) X
-  StepThd-WS-lem ℂ i Gs X G Gs≡ ws j g noRace =
+  expand-WS ℂ i Gs X G Gs≡ ws j g noRace =
       cong (λ a → (Gs [ i ↦ a ]) j g) (sym Gs≡)
     ∙ cong (_$ g) ([↦]-id Gs i j)
     ∙ ws j g noRace
     ∙ sym (cong (_$ g) ([↦]-id Gs i (X g .MemEvs.wr .proj₁)))
     ∙ cong (λ a → (Gs [ i ↦ a ]) (X g .MemEvs.wr .proj₁) g) Gs≡
 
+  upd-other-addr : ∀ ℂ (Gs : GEnvs (Carrier ℂ)) G i j g g' v → Gs i ≡ G → g ≢ g' → Gs j g' ≡ (Gs [ i ↦ G [ g ↦ v ] ]) j g'
+  upd-other-addr ℂ Gs G i j g g' v Gs≡ g≢g' with tidEq i j
+  ... | yes refl = (cong (_$ g') Gs≡ ∙ sym ([↦]-simp-≢ G g g' v g≢g')) ∙ cong (_$ g') (sym ([↦]-simp-≡ Gs i (G [ g ↦ v ])))
+  ... | no i≢j = sym (cong (_$ g') ([↦]-simp-≢ Gs i j (G [ g ↦ v ]) i≢j))
+
   StepThd-WS : ∀ {ℂ i Gs R G X T R' G' X' T'}
     → Gs i ≡ G
     → StepThd ℂ i (just (R , G , X , T)) (just (R' , G' , X' , T'))
     → WellSynced ℂ Gs X
     → WellSynced ℂ (Gs [ i ↦ G' ]) X'
-  StepThd-WS {ℂ = ℂ} {i = i} {Gs = Gs} {G = G} {X = X} Gs≡ (const _ _ _ r c _) ws j g noRace = StepThd-WS-lem ℂ i Gs X G Gs≡ ws j g noRace
-  StepThd-WS {ℂ = ℂ} {i = i} {Gs = Gs} {G = G} {X = X} Gs≡ (binOp _ _ _ r r1 r2 _) ws j g noRace = StepThd-WS-lem ℂ i Gs X G Gs≡ ws j g noRace
-  StepThd-WS {ℂ = ℂ} {i = i} {Gs = Gs} {G = G} {X = X} Gs≡ (rdReg _ _ _ r1 r2 _) ws j g noRace = StepThd-WS-lem ℂ i Gs X G Gs≡ ws j g noRace
-  StepThd-WS {ℂ = ℂ} {i = i} {Gs = Gs} {G = G} {X = X} Gs≡ (rdGbl _ _ _ r g₁ _ x) ws j g noRace =
-      cong (λ a → (Gs [ i ↦ a ]) j g) (sym Gs≡)
-    ∙ cong (_$ g) ([↦]-id Gs i j)
-    ∙ ws j g (doRd-noRace j i g₁ g X noRace)
-    ∙ cong (λ a → Gs (a .proj₁) g) lem
-    ∙ sym (cong (_$ g) ([↦]-id Gs i _))
-    ∙ cong (λ a → (Gs [ i ↦ a ]) _ g) Gs≡
-    where
-    lem : X g .MemEvs.wr ≡ (X [ g₁ ↦ doRd (X g₁) i ]) g .MemEvs.wr
-    lem with gidEq g₁ g
-    ... | yes refl = cong MemEvs.wr (sym ([↦]-simp-≡ X g₁ (doRd (X g₁) i)))
-    ... | no g₁≢g = cong MemEvs.wr (sym ([↦]-simp-≢ X g₁ g (doRd (X g₁) i) g₁≢g))
+  StepThd-WS {ℂ = ℂ} {i = i} {Gs = Gs} {G = G} {X = X} Gs≡ (const _ _ _ r c _) ws = expand-WS ℂ i Gs X G Gs≡ ws
+  StepThd-WS {ℂ = ℂ} {i = i} {Gs = Gs} {G = G} {X = X} Gs≡ (binOp _ _ _ r r1 r2 _) ws = expand-WS ℂ i Gs X G Gs≡ ws
+  StepThd-WS {ℂ = ℂ} {i = i} {Gs = Gs} {G = G} {X = X} Gs≡ (rdReg _ _ _ r1 r2 _) ws = expand-WS ℂ i Gs X G Gs≡ ws
+  StepThd-WS {ℂ = ℂ} {i = i} {Gs = Gs} {G = G} {X = X} Gs≡ (rdGbl _ _ _ r g₁ _ x) ws = doRd-WS ℂ (Gs [ i ↦ G ]) X g₁ i (expand-WS ℂ i Gs X G Gs≡ ws)
   StepThd-WS {ℂ = ℂ} {i = i} {Gs = Gs} {R = R} {G = G} {X = X} {G' = G'} Gs≡ (wrGbl _ _ _ g₁ r _ x x₁) ws j g noRace =
-    case noRace (λ x₂ → cong (λ a → (Gs [ i ↦ G [ g₁ ↦ R r ] ]) a g) x₂) (lem (tidEq i j) (gidEq g₁ g))
+    case noRace (λ x₂ → cong (λ a → (Gs [ i ↦ G [ g₁ ↦ R r ] ]) a g) x₂) (λ x₂ → lem (tidEq i j) (gidEq g₁ g) x₂)
     where
     lem : Dec (i ≡ j) → Dec (g₁ ≡ g)
       → j ∉ (X [ g₁ ↦ doWr (X g₁) i ]) g .MemEvs.wr .proj₂
       → (Gs [ i ↦ G [ g₁ ↦ R r ] ]) j g ≡
         (Gs [ i ↦ G [ g₁ ↦ R r ] ]) ((X [ g₁ ↦ doWr (X g₁) i ]) g .MemEvs.wr .proj₁) g
-    lem (yes refl) (yes refl) j∉ = {!!}
-    lem (no i≢j) (yes refl) j∉ = {!!}
-    lem (yes refl) (no g₁≢g) j∉ = {!!}
-    lem (no i≢j) (no g₁≢g) j∉ = {!!} ∙ ws j g (cast (cong (λ a → noRacingWr j (a .MemEvs.wr)) simp-Xg₁) noRace) ∙ {!!}
-      where
-      simp-Xg₁ : (X [ g₁ ↦ doWr (X g₁) i ]) g ≡ X g
-      simp-Xg₁ = [↦]-simp-≢ X g₁ g (doWr (X g₁) i) g₁≢g
+    lem (yes refl) (yes refl) j∉ = begin
+        (Gs [ i ↦ G [ g₁ ↦ R r ] ]) i g₁
+      ≡⟨ refl ⟩
+        (Gs [ i ↦ G [ g₁ ↦ R r ] ]) (doWr (X g₁) i .MemEvs.wr .proj₁) g₁
+      ≡⟨ cong (λ a → (Gs [ i ↦ G [ g₁ ↦ R r ] ]) (a .MemEvs.wr .proj₁) g₁) (sym ([↦]-simp-≡ X g₁ (doWr (X g₁) i))) ⟩
+        (Gs [ i ↦ G [ g₁ ↦ R r ] ]) ((X [ g₁ ↦ doWr (X g₁) i ]) g₁ .MemEvs.wr .proj₁) g₁
+      ∎
+    lem (no i≢j) (yes refl) j∉ = ⊥-elim (false≢true (sym j∉ ∙ cong (λ a → a .MemEvs.wr .proj₂ j) ([↦]-simp-≡ X g₁ (doWr (X g₁) i))))
+    lem (yes refl) (no g₁≢g) j∉ = begin
+        (Gs [ i ↦ G [ g₁ ↦ R r ] ]) i g
+      ≡⟨ cong (_$ g) ([↦]-simp-≡ _ _ _) ⟩
+        (G [ g₁ ↦ R r ]) g
+      ≡⟨ [↦]-simp-≢ _ _ _ _ g₁≢g ⟩
+        G g
+      ≡⟨ sym (cong (_$ g) Gs≡) ⟩
+        Gs i g
+      ≡⟨ ws i g (≤-Mem-doWr-this i X g₁ g g₁≢g .proj₂ noRace) ⟩
+        Gs (X g .MemEvs.wr .proj₁) g
+      ≡⟨ upd-other-addr ℂ Gs G i (X g .MemEvs.wr .proj₁) g₁ g (R r) Gs≡ g₁≢g ⟩
+        (Gs [ i ↦ G [ g₁ ↦ R r ] ]) (X g .MemEvs.wr .proj₁) g
+      ≡⟨ cong (λ a → (Gs [ i ↦ G [ g₁ ↦ R r ] ]) (a .MemEvs.wr .proj₁) g) (sym ([↦]-simp-≢ _ _ _ _ g₁≢g)) ⟩
+        (Gs [ i ↦ G [ g₁ ↦ R r ] ]) ((X [ g₁ ↦ doWr (X g₁) i ]) g .MemEvs.wr .proj₁) g
+      ∎
+    lem (no i≢j) (no g₁≢g) j∉ = begin
+        (Gs [ i ↦ G [ g₁ ↦ R r ] ]) j g
+      ≡⟨ cong (_$ g) ([↦]-simp-≢ _ _ _ _ i≢j) ⟩
+        Gs j g
+      ≡⟨ ws j g (≤-Mem-doWr-other j i X g₁ (≢-sym i≢j) g .proj₂ noRace) ⟩
+        Gs (X g .MemEvs.wr .proj₁) g
+      ≡⟨ upd-other-addr ℂ Gs G i (X g .MemEvs.wr .proj₁) g₁ g (R r) Gs≡ g₁≢g ⟩
+        (Gs [ i ↦ G [ g₁ ↦ R r ] ]) (X g .MemEvs.wr .proj₁) g
+      ≡⟨ cong (λ a → (Gs [ i ↦ G [ g₁ ↦ R r ] ]) (a .MemEvs.wr .proj₁) g) (sym ([↦]-simp-≢ _ _ _ _ g₁≢g)) ⟩
+        (Gs [ i ↦ G [ g₁ ↦ R r ] ]) ((X [ g₁ ↦ doWr (X g₁) i ]) g .MemEvs.wr .proj₁) g
+      ∎
 
   sync-WS : ∀ ℂ I X Gs → WellSynced ℂ Gs X → WellSynced ℂ (syncEnvs I X Gs) (syncMem I X)
   sync-WS ℂ I X Gs p i g noRace with ∈-dec i I | ∈-dec (proj₁ (MemEvs.wr (X g))) I | ∈-dec (proj₁ (MemEvs.wr (syncMem I X g))) I
