@@ -2,6 +2,7 @@ module KernelCheck.DecSet where
 
 open import Function.Base using (_∘_)
 open import Data.Bool using (Bool; true; false; not; _∧_; _∨_)
+import Data.Bool.Properties
 open import Relation.Nullary.Decidable using (Dec; yes; no)
 open import Relation.Binary.Definitions using (DecidableEquality)
 open import Relation.Binary.PropositionalEquality
@@ -75,3 +76,6 @@ _∩_ : {A : Set} → DecSet A → DecSet A → DecSet A
 
 _-_ : {A : Set} → DecSet A → DecSet A → DecSet A
 (s1 - s2) a = s1 a ∧ not (s2 a)
+
+∉-split : {A : Set} (x : A) (part whole : DecSet A) → x ∉ part → x ∉ (whole - part) → x ∉ whole
+∉-split x part whole p q = sym (Data.Bool.Properties.∧-identityʳ (whole x)) ∙ sym (cong (λ y → whole x ∧ not y) p) ∙ q
