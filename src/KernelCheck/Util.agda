@@ -41,6 +41,9 @@ record HasDecEq (A : Set) : Set where
 _∙_ = trans
 infixr 30 _∙_
 
+it : ∀ {a} (A : Set a) → A → A
+it _ a = a
+
 cong₃ : ∀ {a b c d} {A : Set a} {B : Set b} {C : Set c} {D : Set d} (f : A → B → C → D) {x1 x2 y1 y2 z1 z2} → x1 ≡ x2 → y1 ≡ y2 → z1 ≡ z2 → f x1 y1 z1 ≡ f x2 y2 z2
 cong₃ f refl refl refl = refl
 

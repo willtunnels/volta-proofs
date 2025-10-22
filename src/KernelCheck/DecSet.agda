@@ -79,3 +79,9 @@ _-_ : {A : Set} → DecSet A → DecSet A → DecSet A
 
 ∉-split : {A : Set} (x : A) (part whole : DecSet A) → x ∉ part → x ∉ (whole - part) → x ∉ whole
 ∉-split x part whole p q = sym (Data.Bool.Properties.∧-identityʳ (whole x)) ∙ sym (cong (λ y → whole x ∧ not y) p) ∙ q
+
+∉∧∈→≢ : {A : Set} (x y : A) (s : DecSet A) → x ∉ s → y ∈ s → x ≢ y
+∉∧∈→≢ x y s x∉s y∈s refl = false≢true (sym x∉s ∙ y∈s)
+
+∉∧∈→⊥ : {A : Set} (x : A) (s : DecSet A) {Whatever : Set} → x ∉ s → x ∈ s → Whatever
+∉∧∈→⊥ x s x∉s x∈s = ⊥-elim (∉∧∈→≢ x x s x∉s x∈s refl)

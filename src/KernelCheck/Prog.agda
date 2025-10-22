@@ -98,6 +98,12 @@ data Thd (ℂ : Magma) : Set where
   return : Thd ℂ
   _⨟_ : Stmt ℂ → Thd ℂ → Thd ℂ
 
+return≢ : ∀ ℂ I T → return {ℂ} ≢ sync {ℂ} I ⨟ T
+return≢ ℂ I T ()
+
+⨟-injective : ∀ ℂ I T T' → (sync {ℂ} I ⨟ T) ≡ (sync {ℂ} I ⨟ T') → T ≡ T'
+⨟-injective ℂ I T T' refl = refl
+
 Prog : Magma → Set
 Prog ℂ = Tid → Thd ℂ
 
@@ -145,7 +151,7 @@ yesRacingRd→¬noRacingRd i rd (j , p) q = case (q j) (p .proj₁) (λ x → �
 yesRacingWr→¬noRacingWr : ∀ i wr → yesRacingWr i wr → ¬ noRacingWr i wr
 yesRacingWr→¬noRacingWr i (j , I) (i≢j , i∈I) (inj₁ i≡j) = i≢j i≡j
 yesRacingWr→¬noRacingWr i (j , I) (i≢j , i∈I) (inj₂ i∉I) with i∈I | i∉I
-... | p | q = ⊥-elim (false≢true (trans (sym q) p))
+... | p | q = ∉∧∈→⊥ i I i∉I i∈I
 
 record MemEvs : Set where
   constructor evs
@@ -308,9 +314,25 @@ syncStep I Ts p i | yes q | inj₁ T = return
 syncStep I Ts p i | yes q | inj₂ T = T .proj₁
 syncStep I Ts p i | no  _ = Ts i
 
+syncStep-simp-∉ : ∀ {ℂ} I (Ts : Prog ℂ) (p : canSync I Ts) i → i ∉ I → syncStep I Ts p i ≡ Ts i
+syncStep-simp-∉ I Ts p i i∉I with ∈-dec i I
+... | yes i∈I = ∉∧∈→⊥ i I i∉I i∈I
+... | no _ = refl
+
+syncStep-∈-≡ : ∀ {ℂ} I (Ts : Prog ℂ) (p : canSync I Ts) (Ts' : Prog ℂ) (p' : canSync I Ts') i (q : i ∈ I)
+  → Ts i ≡ Ts' i
+  → syncStep I Ts p i ≡ syncStep I Ts' p' i
+syncStep-∈-≡ I Ts p Ts' p' i i∈I e with ∈-dec i I
+syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q with p i q | p' i q
+syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₁ Ti≡ | inj₁ Tj≡ = refl
+syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₁ Ti≡ | inj₂ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Ti≡ ∙ e ∙ Tj≡ .proj₂))
+syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₁ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Tj≡ ∙ sym e ∙ Ti≡ .proj₂))
+syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₂ Tj≡ = ⨟-injective _ I (Ti≡ .proj₁) (Tj≡ .proj₁) (sym (Ti≡ .proj₂) ∙ e ∙ Tj≡ .proj₂)
+syncStep-∈-≡ I Ts p Ts' p' i i∈I e | no i∉I = ∉∧∈→⊥ i I (¬∈→∉ i I i∉I) i∈I
+
 syncEnvs : {A : Set} → TidSet → Mem → GEnvs A → GEnvs A
-syncEnvs I X Gs i g with ∈-dec i I | ∈-dec (proj₁ (MemEvs.wr (X g))) I
-... | yes _ | yes _ = Gs (proj₁ (MemEvs.wr (X g))) g
+syncEnvs I X Gs i g with ∈-dec i I | ∈-dec (X g .MemEvs.wr .proj₁) I
+... | yes _ | yes _ = Gs (X g .MemEvs.wr .proj₁) g
 ... | yes _ | no  _ = Gs i g
 ... | no  _ | yes _ = Gs i g
 ... | no  _ | no  _ = Gs i g
