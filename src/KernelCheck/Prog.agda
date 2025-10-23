@@ -5,7 +5,7 @@ open import Function.Base using (_∘_; _$_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Empty using (⊥-elim)
 open import Data.Nat using (ℕ; zero; suc; _≟_)
-open import Data.Bool using (Bool; true; false; not; if_then_else_)
+open import Data.Bool using (Bool; true; false; not; if_then_else_; _∧_)
 import Data.Bool.Properties
 open import Data.Sum using (_⊎_; inj₁; inj₂; map; map₁; map₂)
 open import Data.Product using (Σ; _×_; _,_; proj₁; proj₂; ∃-syntax)
@@ -76,9 +76,6 @@ REnvs A = Tid → REnv A
 
 GEnv : Set → Set
 GEnv A = Gid → A
-
-GEnvs : Set → Set
-GEnvs A = Tid → GEnv A
 
 data Stmt (ℂ : Magma) : Set where
   -- x ← c
@@ -330,13 +327,6 @@ syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₁ Tj≡ =
 syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₂ Tj≡ = ⨟-injective _ I (Ti≡ .proj₁) (Tj≡ .proj₁) (sym (Ti≡ .proj₂) ∙ e ∙ Tj≡ .proj₂)
 syncStep-∈-≡ I Ts p Ts' p' i i∈I e | no i∉I = ∉∧∈→⊥ i I (¬∈→∉ i I i∉I) i∈I
 
-syncEnvs : {A : Set} → TidSet → Mem → GEnvs A → GEnvs A
-syncEnvs I X Gs i g with ∈-dec i I | ∈-dec (X g .MemEvs.wr .proj₁) I
-... | yes _ | yes _ = Gs (X g .MemEvs.wr .proj₁) g
-... | yes _ | no  _ = Gs i g
-... | no  _ | yes _ = Gs i g
-... | no  _ | no  _ = Gs i g
-
 syncMemRd : TidSet → Rd → Rd
 syncMemRd I rd i with ∈-dec i I
 ... | yes _ = rd i - I
@@ -372,6 +362,31 @@ syncMemWr-∉ I (i , J) j j∉I p with ∈-dec i I
 ... | yes _ = ∧-intro (J j) (not (I j)) (p , subst (λ a → not a ≡ true) (sym j∉I) refl)
 ... | no _ = p
 
+syncMemRd-simp-∈ : ∀ I rd i → i ∈ I → syncMemRd I rd i ≡ rd i - I
+syncMemRd-simp-∈ I rd i i∈I with ∈-dec i I
+... | yes _ = refl
+... | no i∉I = ⊥-elim (∉∧∈→⊥ i I (¬∈→∉ i I i∉I) i∈I)
+
+syncMemRd-simp-∉ : ∀ I rd i → i ∉ I → syncMemRd I rd i ≡ rd i
+syncMemRd-simp-∉ I rd i i∉I with ∈-dec i I
+... | yes i∈I = ⊥-elim (∉∧∈→⊥ i I i∉I i∈I)
+... | no _ = refl
+
+syncMemWr-simp-∈ : ∀ I wr → wr .proj₁ ∈ I → syncMemWr I wr .proj₂ ≡ wr .proj₂ - I
+syncMemWr-simp-∈ I (i , J) i∈I with ∈-dec i I
+... | yes _ = refl
+... | no i∉I = ⊥-elim (∉∧∈→⊥ i I (¬∈→∉ i I i∉I) i∈I)
+
+syncMemWr-simp-∉ : ∀ I wr → wr .proj₁ ∉ I → syncMemWr I wr .proj₂ ≡ wr .proj₂
+syncMemWr-simp-∉ I (i , J) i∉I with ∈-dec i I
+... | yes i∈I = ⊥-elim (∉∧∈→⊥ i I i∉I i∈I)
+... | no _ = refl
+
+syncMemRd-cong : ∀ I rd rd' i j → rd i j ≡ rd' i j → syncMemRd I rd i j ≡ syncMemRd I rd' i j
+syncMemRd-cong I rd rd' i j eq with ∈-dec i I
+... | yes _ = cong (λ b → b ∧ not (I j)) eq
+... | no _ = eq
+
 syncMem : TidSet → Mem → Mem
 syncMem I X g = evs (syncMemRd I (MemEvs.rd (X g))) (syncMemWr I (MemEvs.wr (X g)))
 
@@ -379,14 +394,14 @@ CfgThd : Magma → Set
 CfgThd ℂ = Maybe (REnv (Carrier ℂ) × GEnv (Carrier ℂ) × Mem × Thd ℂ)
 
 CfgProg : Magma → Set
-CfgProg ℂ = Maybe (REnvs (Carrier ℂ) × GEnvs (Carrier ℂ) × Mem × Prog ℂ)
+CfgProg ℂ = Maybe (REnvs (Carrier ℂ) × GEnv (Carrier ℂ) × Mem × Prog ℂ)
 
 CfgProg-≡-intro : ∀ {ℂ}
-  {Rs  : REnvs (Carrier ℂ)} {Gs  : GEnvs (Carrier ℂ)} {X  : Mem} {Ts  : Prog ℂ}
-  {Rs' : REnvs (Carrier ℂ)} {Gs' : GEnvs (Carrier ℂ)} {X' : Mem} {Ts' : Prog ℂ}
-  → Rs ≡ Rs' → Gs ≡ Gs' → X ≡ X' → Ts ≡ Ts'
-  → just (Rs , Gs , X , Ts) ≡ just (Rs' , Gs' , X' , Ts')
-CfgProg-≡-intro {ℂ} {Rs} {Gs} {X} {Ts} {Rs' = Rs'} {Gs' = Gs'} {X' = X'} {Ts' = Ts'} refl refl refl refl = cong (λ a → just (Rs , Gs , X , a)) refl
+  {Rs  : REnvs (Carrier ℂ)} {G  : GEnv (Carrier ℂ)} {X  : Mem} {Ts  : Prog ℂ}
+  {Rs' : REnvs (Carrier ℂ)} {G' : GEnv (Carrier ℂ)} {X' : Mem} {Ts' : Prog ℂ}
+  → Rs ≡ Rs' → G ≡ G' → X ≡ X' → Ts ≡ Ts'
+  → just (Rs , G , X , Ts) ≡ just (Rs' , G' , X' , Ts')
+CfgProg-≡-intro {ℂ} {Rs} {Gs} {X} {Ts} {Rs' = Rs'} {G' = G'} {X' = X'} {Ts' = Ts'} refl refl refl refl = cong (λ a → just (Rs , Gs , X , a)) refl
 
 data StepThd (ℂ : Magma) (i : Tid) : CfgThd ℂ → CfgThd ℂ → Set where
   const : ∀ R G X r c T
@@ -410,21 +425,19 @@ data StepThd (ℂ : Magma) (i : Tid) : CfgThd ℂ → CfgThd ℂ → Set where
     → StepThd ℂ i (just (R , G , X , wrGbl g r ⨟ T)) nothing
 
 data StepProg (ℂ : Magma) : CfgProg ℂ → CfgProg ℂ → Set where
-  schd : ∀ i Rs Gs X Ts R G T R' G' X' T'
+  schd : ∀ i Rs X Ts R G T R' G' X' T'
     → Rs i ≡ R
-    → Gs i ≡ G
     → Ts i ≡ T
     → StepThd ℂ i (just (R , G , X , T)) (just (R' , G' , X' , T'))
-    → StepProg ℂ (just (Rs , Gs , X , Ts)) (just (Rs [ i ↦ R' ] , Gs [ i ↦ G' ] , X' , Ts [ i ↦ T' ]))
-  schdBad : ∀ i Rs Gs X Ts R G T
+    → StepProg ℂ (just (Rs , G , X , Ts)) (just (Rs [ i ↦ R' ] , G' , X' , Ts [ i ↦ T' ]))
+  schdBad : ∀ i Rs X Ts R G T
     → Rs i ≡ R
-    → Gs i ≡ G
     → Ts i ≡ T
     → StepThd ℂ i (just (R , G , X , T)) nothing
-    → StepProg ℂ (just (Rs , Gs , X , Ts)) nothing
-  sync : ∀ I Rs Gs X Ts
+    → StepProg ℂ (just (Rs , G , X , Ts)) nothing
+  sync : ∀ I Rs G X Ts
     → (q : canSync I Ts)
-    → StepProg ℂ (just (Rs , Gs , X , Ts)) (just (Rs , syncEnvs I X Gs , syncMem I X , syncStep I Ts q))
+    → StepProg ℂ (just (Rs , G , X , Ts)) (just (Rs , G , syncMem I X , syncStep I Ts q))
 
 data StepProg* (ℂ : Magma) : CfgProg ℂ → CfgProg ℂ → Set where
   done : ∀ C
@@ -437,21 +450,19 @@ data StepProg* (ℂ : Magma) : CfgProg ℂ → CfgProg ℂ → Set where
 data StepProgRefl (ℂ : Magma) : CfgProg ℂ → CfgProg ℂ → Set where
   refl : ∀ C
     → StepProgRefl ℂ C C
-  schd : ∀ i Rs Gs X Ts R G T R' G' X' T'
+  schd : ∀ i Rs X Ts R G T R' G' X' T'
     → Rs i ≡ R
-    → Gs i ≡ G
     → Ts i ≡ T
     → StepThd ℂ i (just (R , G , X , T)) (just (R' , G' , X' , T'))
-    → StepProgRefl ℂ (just (Rs , Gs , X , Ts)) (just (Rs [ i ↦ R' ] , Gs [ i ↦ G' ] , X' , Ts [ i ↦ T' ]))
-  schdBad : ∀ i Rs Gs X Ts R G T
+    → StepProgRefl ℂ (just (Rs , G , X , Ts)) (just (Rs [ i ↦ R' ] , G' , X' , Ts [ i ↦ T' ]))
+  schdBad : ∀ i Rs X Ts R G T
     → Rs i ≡ R
-    → Gs i ≡ G
     → Ts i ≡ T
     → StepThd ℂ i (just (R , G , X , T)) nothing
-    → StepProgRefl ℂ (just (Rs , Gs , X , Ts)) nothing
-  sync : ∀ I Rs Gs X Ts
+    → StepProgRefl ℂ (just (Rs , G , X , Ts)) nothing
+  sync : ∀ I Rs G X Ts
     → (q : canSync I Ts)
-    → StepProgRefl ℂ (just (Rs , Gs , X , Ts)) (just (Rs , syncEnvs I X Gs , syncMem I X , syncStep I Ts q))
+    → StepProgRefl ℂ (just (Rs , G , X , Ts)) (just (Rs , G , syncMem I X , syncStep I Ts q))
 
 data StepProgRefl* (ℂ : Magma) : CfgProg ℂ → CfgProg ℂ → Set where
   done : ∀ C
