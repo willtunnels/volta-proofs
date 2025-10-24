@@ -56,6 +56,11 @@ cong₄ f refl refl refl refl = refl
 cast : ∀ {a} {A B : Set a} → A ≡ B → A → B
 cast refl x = x
 
+subst₃ : ∀ {a} {A B C : Set a} (P : A → B → C → Set a) {x1 x2 y1 y2 z1 z2}
+         → x1 ≡ x2 → y1 ≡ y2 → z1 ≡ z2
+         → P x1 y1 z1 → P x2 y2 z2
+subst₃ P refl refl refl px = px
+
 case : ∀ {A B : Set} {C : A ⊎ B → Set} → (x : A ⊎ B) → ((x : A) → C (inj₁ x)) → ((x : B) → C (inj₂ x)) → C x
 case {C = C} x f g = Data.Sum.[_,_] {C = C} f g x
 

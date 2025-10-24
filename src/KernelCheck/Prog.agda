@@ -375,9 +375,14 @@ syncMemRd-∉ I x i j j∉I p with ∈-dec i I
 ... | yes _ = ∧-intro (x i j) (not (I j)) (p , subst (λ a → not a ≡ true) (sym j∉I) refl)
 ... | no _ = p
 
-syncMemWr-simp1 : ∀ I x → syncMemWr I x .proj₁ ≡ x .proj₁
-syncMemWr-simp1 I (i , J) with ∈-dec i I
+syncMemRd-simp-∈ : ∀ I rd i → i ∈ I → syncMemRd I rd i ≡ rd i - I
+syncMemRd-simp-∈ I rd i i∈I with ∈-dec i I
 ... | yes _ = refl
+... | no i∉I = ⊥-elim (∉∧∈→⊥ i I (¬∈→∉ i I i∉I) i∈I)
+
+syncMemRd-simp-∉ : ∀ I rd i → i ∉ I → syncMemRd I rd i ≡ rd i
+syncMemRd-simp-∉ I rd i i∉I with ∈-dec i I
+... | yes i∈I = ⊥-elim (∉∧∈→⊥ i I i∉I i∈I)
 ... | no _ = refl
 
 syncMemWr-⊆ : ∀ I x → syncMemWr I x .proj₂ ⊆ x .proj₂
@@ -390,14 +395,9 @@ syncMemWr-∉ I (i , J) j j∉I p with ∈-dec i I
 ... | yes _ = ∧-intro (J j) (not (I j)) (p , subst (λ a → not a ≡ true) (sym j∉I) refl)
 ... | no _ = p
 
-syncMemRd-simp-∈ : ∀ I rd i → i ∈ I → syncMemRd I rd i ≡ rd i - I
-syncMemRd-simp-∈ I rd i i∈I with ∈-dec i I
+syncMemWr-simp1 : ∀ I x → syncMemWr I x .proj₁ ≡ x .proj₁
+syncMemWr-simp1 I (i , J) with ∈-dec i I
 ... | yes _ = refl
-... | no i∉I = ⊥-elim (∉∧∈→⊥ i I (¬∈→∉ i I i∉I) i∈I)
-
-syncMemRd-simp-∉ : ∀ I rd i → i ∉ I → syncMemRd I rd i ≡ rd i
-syncMemRd-simp-∉ I rd i i∉I with ∈-dec i I
-... | yes i∈I = ⊥-elim (∉∧∈→⊥ i I i∉I i∈I)
 ... | no _ = refl
 
 syncMemWr-simp-∈ : ∀ I wr → wr .proj₁ ∈ I → syncMemWr I wr .proj₂ ≡ wr .proj₂ - I

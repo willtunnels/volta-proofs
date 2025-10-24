@@ -86,6 +86,20 @@ _∩_ : {A : Set} → DecSet A → DecSet A → DecSet A
 _-_ : {A : Set} → DecSet A → DecSet A → DecSet A
 (s1 - s2) a = s1 a ∧ not (s2 a)
 
+setMinus-comm : {A : Set} (I J K : DecSet A) → ((I - J) - K) ≡ ((I - K) - J)
+setMinus-comm {A} I J K = funext lem
+  where
+  lem : (x : A) → ((I - J) - K) x ≡ ((I - K) - J) x
+  lem x with ∈-dec x I | ∈-dec x J | ∈-dec x K
+  ... | yes p | yes q | yes r = subst₃ (λ i j k → (i ∧ not j) ∧ not k ≡ (i ∧ not k) ∧ not j) (sym p) (sym q) (sym r) refl
+  ... | no  p | yes q | yes r = subst₃ (λ i j k → (i ∧ not j) ∧ not k ≡ (i ∧ not k) ∧ not j) (sym (¬∈→∉ x I p)) (sym q) (sym r) refl
+  ... | yes p | no  q | yes r = subst₃ (λ i j k → (i ∧ not j) ∧ not k ≡ (i ∧ not k) ∧ not j) (sym p) (sym (¬∈→∉ x J q)) (sym r) refl
+  ... | yes p | yes q | no  r = subst₃ (λ i j k → (i ∧ not j) ∧ not k ≡ (i ∧ not k) ∧ not j) (sym p) (sym q) (sym (¬∈→∉ x K r)) refl
+  ... | no  p | no  q | yes r = subst₃ (λ i j k → (i ∧ not j) ∧ not k ≡ (i ∧ not k) ∧ not j) (sym (¬∈→∉ x I p)) (sym (¬∈→∉ x J q)) (sym r) refl
+  ... | yes p | no  q | no  r = subst₃ (λ i j k → (i ∧ not j) ∧ not k ≡ (i ∧ not k) ∧ not j) (sym p) (sym (¬∈→∉ x J q)) (sym (¬∈→∉ x K r)) refl
+  ... | no  p | yes q | no  r = subst₃ (λ i j k → (i ∧ not j) ∧ not k ≡ (i ∧ not k) ∧ not j) (sym (¬∈→∉ x I p)) (sym q) (sym (¬∈→∉ x K r)) refl
+  ... | no  p | no  q | no  r = subst₃ (λ i j k → (i ∧ not j) ∧ not k ≡ (i ∧ not k) ∧ not j) (sym (¬∈→∉ x I p)) (sym (¬∈→∉ x J q)) (sym (¬∈→∉ x K r)) refl
+
 ∉-split : {A : Set} (x : A) (part whole : DecSet A) → x ∉ part → x ∉ (whole - part) → x ∉ whole
 ∉-split x part whole p q = sym (Data.Bool.Properties.∧-identityʳ (whole x)) ∙ sym (cong (λ y → whole x ∧ not y) p) ∙ q
 
