@@ -74,6 +74,15 @@ _∪_ : {A : Set} → DecSet A → DecSet A → DecSet A
 _∩_ : {A : Set} → DecSet A → DecSet A → DecSet A
 (s1 ∩ s2) a = s1 a ∧ s2 a
 
+∩-intro : {A : Set} (i : A) (I : DecSet A) (J : DecSet A) → i ∈ I → i ∈ J → i ∈ (I ∩ J)
+∩-intro {A} i I J i∈I i∈J = subst₂ (λ a b → a ∧ b ≡ true) (sym i∈I) (sym i∈J) refl
+
+∩-elim1 : {A : Set} (i : A) (I : DecSet A) (J : DecSet A) → i ∈ (I ∩ J) → i ∈ I
+∩-elim1 {A} i I J i∈I∩J = Data.Bool.Properties.∧-conicalˡ (I i) (J i) i∈I∩J 
+
+∩-elim2 : {A : Set} (i : A) (I : DecSet A) (J : DecSet A) → i ∈ (I ∩ J) → i ∈ J
+∩-elim2 {A} i I J i∈I∩J = Data.Bool.Properties.∧-conicalʳ (I i) (J i) i∈I∩J 
+
 _-_ : {A : Set} → DecSet A → DecSet A → DecSet A
 (s1 - s2) a = s1 a ∧ not (s2 a)
 

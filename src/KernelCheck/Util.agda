@@ -38,6 +38,9 @@ record HasDecEq (A : Set) : Set where
   field
     eq : DecidableEquality A
 
+isProp : Set → Set
+isProp A = (x y : A) → x ≡ y
+
 _∙_ = trans
 infixr 30 _∙_
 
@@ -55,6 +58,10 @@ cast refl x = x
 
 case : ∀ {A B : Set} {C : A ⊎ B → Set} → (x : A ⊎ B) → ((x : A) → C (inj₁ x)) → ((x : B) → C (inj₂ x)) → C x
 case {C = C} x f g = Data.Sum.[_,_] {C = C} f g x
+
+-- Non-dependent version of `case` to aid type inference
+case' : ∀ {A B C : Set} (x : A ⊎ B) → ((x : A) → C) → ((x : B) → C) → C
+case' {C = C} x f g = Data.Sum.[_,_] {C = λ _ → C} f g x
 
 not-true : ∀ {x} → not x ≡ true → x ≡ false
 not-true {false} _ = refl

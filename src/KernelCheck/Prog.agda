@@ -10,7 +10,7 @@ import Data.Bool.Properties
 open import Data.Sum using (_⊎_; inj₁; inj₂; map; map₁; map₂)
 open import Data.Product using (Σ; _×_; _,_; proj₁; proj₂; ∃-syntax)
 import Data.Product.Properties
-open import Relation.Nullary.Decidable using (Dec; yes; no)
+open import Relation.Nullary.Decidable using (Dec; yes; no; fromSum)
 open import Relation.Binary.Definitions using (DecidableEquality)
 open import Relation.Nullary.Negation using (¬_)
 
@@ -98,8 +98,11 @@ data Thd (ℂ : Magma) : Set where
 return≢ : ∀ ℂ I T → return {ℂ} ≢ sync {ℂ} I ⨟ T
 return≢ ℂ I T ()
 
-⨟-injective : ∀ ℂ I T T' → (sync {ℂ} I ⨟ T) ≡ (sync {ℂ} I ⨟ T') → T ≡ T'
-⨟-injective ℂ I T T' refl = refl
+⨟-injective1 : ∀ ℂ I I' T T' → (sync {ℂ} I ⨟ T) ≡ (sync {ℂ} I' ⨟ T') → I ≡ I'
+⨟-injective1 ℂ I I' T T' refl = refl
+
+⨟-injective2 : ∀ ℂ I I' T T' → (sync {ℂ} I ⨟ T) ≡ (sync {ℂ} I' ⨟ T') → T ≡ T'
+⨟-injective2 ℂ I I' T T' refl = refl
 
 Prog : Magma → Set
 Prog ℂ = Tid → Thd ℂ
@@ -179,6 +182,11 @@ module _ {A B : Set} {{eq : HasDecEq A}} where
 
     [↦]-id : (f : A → B) (x : A) (x' : A) → (f [ x ↦ f x ]) x' ≡ f x'
     [↦]-id f x x' with HasDecEq.eq eq x x'
+    ... | yes refl = refl
+    ... | no _ = refl
+
+    [↦]-idem : (f : A → B) (x x' : A) (y : B) → ((f [ x ↦ y ]) [ x ↦ y ]) x' ≡ (f [ x ↦ y ]) x'
+    [↦]-idem f x x' y with HasDecEq.eq eq x x'
     ... | yes refl = refl
     ... | no _ = refl
 
@@ -304,12 +312,32 @@ yesRacingWr-mono i X X' g p q = ¬noRacingWr→yesRacingWr i (MemEvs.wr (X' g)) 
 canSync : {ℂ : Magma} → TidSet → Prog ℂ → Set
 canSync I Ts = ∀ i → i ∈ I → Ts i ≡ return ⊎ ∃[ T ] Ts i ≡ sync I ⨟ T
 
+canSync-isProp : {ℂ : Magma} (I : TidSet) (Ts : Prog ℂ) → isProp (canSync I Ts)
+canSync-isProp I Ts p q = funext' λ i → funext' λ i∈I → lem I Ts i (p i i∈I) (q i i∈I)
+  where
+  lem : {ℂ : Magma} (I : TidSet) (Ts : Prog ℂ) (i : Tid) (p q : (Ts i ≡ return) ⊎ (∃[ T ] Ts i ≡ (sync I ⨟ T))) → p ≡ q
+  lem {ℂ} I Ts i (inj₁ x) (inj₁ y) = cong inj₁ (uip x y)
+  lem {ℂ} I Ts i (inj₁ x) (inj₂ y) = ⊥-elim (return≢ ℂ I (y .proj₁) (sym x ∙ y .proj₂))
+  lem {ℂ} I Ts i (inj₂ x) (inj₁ y) = ⊥-elim (return≢ ℂ I (x .proj₁) (sym y ∙ x .proj₂))
+  lem {ℂ} I Ts i (inj₂ x) (inj₂ y) = cong inj₂ (case' (LEM (x .proj₁ ≡ y .proj₁))
+    (λ e → Data.Product.Properties.Σ-≡,≡→≡ (e , uip (subst (λ a → Ts i ≡ (sync I ⨟ a)) e (x .proj₂)) (y .proj₂)))
+    (λ e → ⊥-elim (e (⨟-injective2 ℂ I I (x .proj₁) (y .proj₁) (sym (x .proj₂) ∙ y .proj₂)))))
+
 syncStep : {ℂ : Magma} (I : TidSet) (Ts : Prog ℂ) → canSync I Ts → Prog ℂ
 syncStep I Ts p i with ∈-dec i I
 syncStep I Ts p i | yes q with p i q
 syncStep I Ts p i | yes q | inj₁ T = return
 syncStep I Ts p i | yes q | inj₂ T = T .proj₁
 syncStep I Ts p i | no  _ = Ts i
+
+syncStep-return : {ℂ : Magma} (I : TidSet) (Ts : Prog ℂ) (p : canSync I Ts) (i : Tid)
+  → Ts i ≡ return
+  → syncStep I Ts p i ≡ return
+syncStep-return {ℂ} I Ts p i isReturn with ∈-dec i I
+syncStep-return {ℂ} I Ts p i isReturn | yes q with p i q
+syncStep-return {ℂ} I Ts p i isReturn | yes q | inj₁ T = refl
+syncStep-return {ℂ} I Ts p i isReturn | yes q | inj₂ T = ⊥-elim (return≢ ℂ I (T .proj₁) (sym isReturn ∙ T .proj₂))
+syncStep-return {ℂ} I Ts p i isReturn | no _ = isReturn
 
 syncStep-simp-∉ : ∀ {ℂ} I (Ts : Prog ℂ) (p : canSync I Ts) i → i ∉ I → syncStep I Ts p i ≡ Ts i
 syncStep-simp-∉ I Ts p i i∉I with ∈-dec i I
@@ -324,7 +352,7 @@ syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q with p i q | p' i q
 syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₁ Ti≡ | inj₁ Tj≡ = refl
 syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₁ Ti≡ | inj₂ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Ti≡ ∙ e ∙ Tj≡ .proj₂))
 syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₁ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Tj≡ ∙ sym e ∙ Ti≡ .proj₂))
-syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₂ Tj≡ = ⨟-injective _ I (Ti≡ .proj₁) (Tj≡ .proj₁) (sym (Ti≡ .proj₂) ∙ e ∙ Tj≡ .proj₂)
+syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₂ Tj≡ = ⨟-injective2 _ I I (Ti≡ .proj₁) (Tj≡ .proj₁) (sym (Ti≡ .proj₂) ∙ e ∙ Tj≡ .proj₂)
 syncStep-∈-≡ I Ts p Ts' p' i i∈I e | no i∉I = ∉∧∈→⊥ i I (¬∈→∉ i I i∉I) i∈I
 
 syncMemRd : TidSet → Rd → Rd
