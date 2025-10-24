@@ -78,7 +78,7 @@ syncStep-[↦]-comm ℂ I Ts q Ti i j i∉I = lem (tidEq i j) (∈-dec j I)
   lem : Dec (i ≡ j) → Dec (j ∈ I) → ((syncStep I Ts q) [ i ↦ Ti ]) j ≡ syncStep I (Ts [ i ↦ Ti ]) q' j
   lem (yes refl) (yes j∈I) = ∉∧∈→⊥ i I i∉I j∈I
   lem (yes refl) (no j∉I) = [↦]-simp-≡ (syncStep I Ts q) i Ti ∙ sym (syncStep-simp-∉ I (Ts [ i ↦ Ti ]) q' i i∉I ∙ [↦]-simp-≡ Ts i Ti)
-  lem (no i≢j) (yes j∈I) = [↦]-simp-≢ (syncStep I Ts q) i j Ti i≢j ∙ syncStep-∈-≡ I Ts q (Ts [ i ↦ Ti ]) q' j j∈I (sym ([↦]-simp-≢ Ts i j Ti i≢j))
+  lem (no i≢j) (yes j∈I) = [↦]-simp-≢ (syncStep I Ts q) i j Ti i≢j ∙ syncStep-simp-∈ I Ts q (Ts [ i ↦ Ti ]) q' j j∈I (sym ([↦]-simp-≢ Ts i j Ti i≢j))
   lem (no i≢j) (no j∉I) = [↦]-simp-≢ (syncStep I Ts q) i j Ti i≢j ∙ syncStep-simp-∉ I Ts q j (¬∈→∉ j I j∉I) ∙ sym (syncStep-simp-∉ I (Ts [ i ↦ Ti ]) q' j (¬∈→∉ j I j∉I) ∙ [↦]-simp-≢ Ts i j Ti i≢j)
 
 liveDisjoint : {ℂ : Magma} (I : TidSet) (J : TidSet) (Ts : Prog ℂ) → Set
@@ -158,11 +158,26 @@ syncMem-comm I J X = funext λ g → MemEvs-≡
     ∙ sym (syncMemWr-simp-∉ I (MemEvs.wr (X g)) (¬∈→∉ (MemEvs.wr (X g) .proj₁) I (subst (λ x → ¬ (x ∈ I)) (syncMemWr-simp1 J (MemEvs.wr (X g))) p)))
     ∙ sym (syncMemWr-simp-∉ J (MemEvs.wr (syncMem I X g)) (¬∈→∉ (MemEvs.wr (syncMem I X g) .proj₁) J q))
 
-syncStep-syncStep-comm : ∀ {ℂ} I J (Ts : Prog ℂ) (p : canSync I Ts) (q : canSync J Ts) (p' : canSync J (syncStep I Ts p)) (q' : canSync I (syncStep J Ts q))
+syncStep-syncStep-comm : ∀ {ℂ} I J (Ts : Prog ℂ)
+  → (p : canSync I Ts) (q : canSync J Ts)
+  → (p' : canSync J (syncStep I Ts p)) (q' : canSync I (syncStep J Ts q))
   → I ≢ J
-  → syncStep I (syncStep J Ts q) q' ≡
-    syncStep J (syncStep I Ts p) p'
-syncStep-syncStep-comm I J Ts p q p' q' I≢J = {!!}
+  → syncStep I (syncStep J Ts q) q' ≡ syncStep J (syncStep I Ts p) p'
+syncStep-syncStep-comm I J Ts p q p' q' I≢J = funext λ i → lem i (∈-dec i I) (∈-dec i J)
+  where
+  lem : ∀ i → Dec (i ∈ I) → Dec (i ∈ J) → syncStep I (syncStep J Ts q) q' i ≡ syncStep J (syncStep I Ts p) p' i
+  lem i (yes a) (yes b) = {!sym (syncStep-simp-≡ J I Ts q p i b a)!}
+  lem i (no a) (yes b) =
+    syncStep-simp-∉ I (syncStep J Ts q) q' i (¬∈→∉ i I a)
+    ∙ syncStep-simp-∈ J Ts q (syncStep I Ts p) p' i b (sym (syncStep-simp-∉ I Ts p i (¬∈→∉ i I a)))
+  lem i (yes a) (no b) =
+    syncStep-simp-∈ I (syncStep J Ts q) q' Ts p i a (syncStep-simp-∉ J Ts q i (¬∈→∉ i J b))
+    ∙ sym (syncStep-simp-∉ J (syncStep I Ts p) p' i (¬∈→∉ i J b))
+  lem i (no a) (no b) =
+    syncStep-simp-∉ I (syncStep J Ts q) q' i (¬∈→∉ i I a)
+    ∙ syncStep-simp-∉ J Ts q i (¬∈→∉ i J b)
+    ∙ sym (syncStep-simp-∉ I Ts p i (¬∈→∉ i I a))
+    ∙ sym (syncStep-simp-∉ J (syncStep I Ts p) p' i (¬∈→∉ i J b))
 
 diamond : ∀ {ℂ C C1 C2}
   → StepProgRefl ℂ C C1

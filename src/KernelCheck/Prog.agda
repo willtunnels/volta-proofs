@@ -1,3 +1,4 @@
+{-# OPTIONS --allow-unsolved-metas #-}
 module KernelCheck.Prog where
 
 open import Axiom.UniquenessOfIdentityProofs.WithK
@@ -344,16 +345,31 @@ syncStep-simp-∉ I Ts p i i∉I with ∈-dec i I
 ... | yes i∈I = ∉∧∈→⊥ i I i∉I i∈I
 ... | no _ = refl
 
-syncStep-∈-≡ : ∀ {ℂ} I (Ts : Prog ℂ) (p : canSync I Ts) (Ts' : Prog ℂ) (p' : canSync I Ts') i (q : i ∈ I)
+syncStep-simp-∈ : ∀ {ℂ} I (Ts : Prog ℂ) (p : canSync I Ts) (Ts' : Prog ℂ) (p' : canSync I Ts') i
+  → i ∈ I
   → Ts i ≡ Ts' i
   → syncStep I Ts p i ≡ syncStep I Ts' p' i
-syncStep-∈-≡ I Ts p Ts' p' i i∈I e with ∈-dec i I
-syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q with p i q | p' i q
-syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₁ Ti≡ | inj₁ Tj≡ = refl
-syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₁ Ti≡ | inj₂ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Ti≡ ∙ e ∙ Tj≡ .proj₂))
-syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₁ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Tj≡ ∙ sym e ∙ Ti≡ .proj₂))
-syncStep-∈-≡ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₂ Tj≡ = ⨟-injective2 _ I I (Ti≡ .proj₁) (Tj≡ .proj₁) (sym (Ti≡ .proj₂) ∙ e ∙ Tj≡ .proj₂)
-syncStep-∈-≡ I Ts p Ts' p' i i∈I e | no i∉I = ∉∧∈→⊥ i I (¬∈→∉ i I i∉I) i∈I
+syncStep-simp-∈ I Ts p Ts' p' i i∈I e with ∈-dec i I
+syncStep-simp-∈ I Ts p Ts' p' i i∈I e | yes q with p i q | p' i q
+syncStep-simp-∈ I Ts p Ts' p' i i∈I e | yes q | inj₁ Ti≡ | inj₁ Tj≡ = refl
+syncStep-simp-∈ I Ts p Ts' p' i i∈I e | yes q | inj₁ Ti≡ | inj₂ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Ti≡ ∙ e ∙ Tj≡ .proj₂))
+syncStep-simp-∈ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₁ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Tj≡ ∙ sym e ∙ Ti≡ .proj₂))
+syncStep-simp-∈ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₂ Tj≡ = ⨟-injective2 _ I I (Ti≡ .proj₁) (Tj≡ .proj₁) (sym (Ti≡ .proj₂) ∙ e ∙ Tj≡ .proj₂)
+syncStep-simp-∈ I Ts p Ts' p' i i∈I e | no i∉I = ∉∧∈→⊥ i I (¬∈→∉ i I i∉I) i∈I
+
+syncStep-simp-≡ : ∀ {ℂ} I J (Ts : Prog ℂ) (p : canSync I Ts) (q : canSync J Ts) i
+  → i ∈ I
+  → i ∈ J
+  → syncStep I Ts p i ≡ syncStep J Ts q i
+syncStep-simp-≡ {ℂ} I J Ts p q i r s with ∈-dec i I | ∈-dec i J
+syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | yes i∈J with p i i∈I | q i i∈J
+syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | yes i∈J | inj₁ Ti≡ | inj₁ Tj≡ = refl
+syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | yes i∈J | inj₁ Ti≡ | inj₂ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Ti≡ ∙ Tj≡ .proj₂)) 
+syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | yes i∈J | inj₂ Ti≡ | inj₁ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Tj≡ ∙ Ti≡ .proj₂))
+syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | yes i∈J | inj₂ Ti≡ | inj₂ Tj≡ = ⨟-injective2 ℂ I J (Ti≡ .proj₁) (Tj≡ .proj₁) (sym (Ti≡ .proj₂) ∙ Tj≡ .proj₂)
+syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | no  i∉J = ⊥-elim (false≢true (sym (Data.Bool.Properties.¬-not i∉J) ∙ s))
+syncStep-simp-≡ {ℂ} I J Ts p q i r s | no  i∉I | yes i∈J = ⊥-elim (false≢true (sym (Data.Bool.Properties.¬-not i∉I) ∙ r))
+syncStep-simp-≡ {ℂ} I J Ts p q i r s | no  i∉I | no  i∉J = ⊥-elim (false≢true (sym (Data.Bool.Properties.¬-not i∉I) ∙ r))
 
 syncMemRd : TidSet → Rd → Rd
 syncMemRd I rd i with ∈-dec i I
