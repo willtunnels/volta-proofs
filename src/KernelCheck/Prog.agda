@@ -96,6 +96,18 @@ data Thd (ℂ : Magma) : Set where
   return : Thd ℂ
   _⨟_ : Stmt ℂ → Thd ℂ → Thd ℂ
 
+fmapStmt : ∀ {ℂ ℂ' : Magma} → (ℂ .Carrier → ℂ' .Carrier) → Stmt ℂ → Stmt ℂ'
+fmapStmt f (const x x₁) = const x (f x₁)
+fmapStmt f (binOp x x₁ x₂) = binOp x x₁ x₂
+fmapStmt f (rdReg x x₁) = rdReg x x₁
+fmapStmt f (rdGbl x x₁) = rdGbl x x₁
+fmapStmt f (wrGbl x x₁) = wrGbl x x₁
+fmapStmt f (sync x) = sync x
+
+fmapThd : ∀ {ℂ ℂ' : Magma} → (ℂ .Carrier → ℂ' .Carrier) → Thd ℂ → Thd ℂ'
+fmapThd f return = return
+fmapThd f (x ⨟ x₁) = fmapStmt f x ⨟ fmapThd f x₁
+
 return≢ : ∀ ℂ I T → return {ℂ} ≢ sync {ℂ} I ⨟ T
 return≢ ℂ I T ()
 
@@ -357,19 +369,20 @@ syncStep-simp-∈ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₁ Tj≡ 
 syncStep-simp-∈ I Ts p Ts' p' i i∈I e | yes q | inj₂ Ti≡ | inj₂ Tj≡ = ⨟-injective2 _ I I (Ti≡ .proj₁) (Tj≡ .proj₁) (sym (Ti≡ .proj₂) ∙ e ∙ Tj≡ .proj₂)
 syncStep-simp-∈ I Ts p Ts' p' i i∈I e | no i∉I = ∉∧∈→⊥ i I (¬∈→∉ i I i∉I) i∈I
 
-syncStep-simp-≡ : ∀ {ℂ} I J (Ts : Prog ℂ) (p : canSync I Ts) (q : canSync J Ts) i
+syncStep-simp-≡ : ∀ {ℂ} I J (TsI TsJ : Prog ℂ) (p : canSync I TsI) (q : canSync J TsJ) i
   → i ∈ I
   → i ∈ J
-  → syncStep I Ts p i ≡ syncStep J Ts q i
-syncStep-simp-≡ {ℂ} I J Ts p q i r s with ∈-dec i I | ∈-dec i J
-syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | yes i∈J with p i i∈I | q i i∈J
-syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | yes i∈J | inj₁ Ti≡ | inj₁ Tj≡ = refl
-syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | yes i∈J | inj₁ Ti≡ | inj₂ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Ti≡ ∙ Tj≡ .proj₂)) 
-syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | yes i∈J | inj₂ Ti≡ | inj₁ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Tj≡ ∙ Ti≡ .proj₂))
-syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | yes i∈J | inj₂ Ti≡ | inj₂ Tj≡ = ⨟-injective2 ℂ I J (Ti≡ .proj₁) (Tj≡ .proj₁) (sym (Ti≡ .proj₂) ∙ Tj≡ .proj₂)
-syncStep-simp-≡ {ℂ} I J Ts p q i r s | yes i∈I | no  i∉J = ⊥-elim (false≢true (sym (Data.Bool.Properties.¬-not i∉J) ∙ s))
-syncStep-simp-≡ {ℂ} I J Ts p q i r s | no  i∉I | yes i∈J = ⊥-elim (false≢true (sym (Data.Bool.Properties.¬-not i∉I) ∙ r))
-syncStep-simp-≡ {ℂ} I J Ts p q i r s | no  i∉I | no  i∉J = ⊥-elim (false≢true (sym (Data.Bool.Properties.¬-not i∉I) ∙ r))
+  → TsI i ≡ TsJ i
+  → syncStep I TsI p i ≡ syncStep J TsJ q i
+syncStep-simp-≡ {ℂ} I J TsI TsJ p q i r s e with ∈-dec i I | ∈-dec i J
+syncStep-simp-≡ {ℂ} I J TsI TsJ p q i r s e | yes i∈I | yes i∈J with p i i∈I | q i i∈J
+syncStep-simp-≡ {ℂ} I J TsI TsJ p q i r s e | yes i∈I | yes i∈J | inj₁ Ti≡ | inj₁ Tj≡ = refl
+syncStep-simp-≡ {ℂ} I J TsI TsJ p q i r s e | yes i∈I | yes i∈J | inj₁ Ti≡ | inj₂ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Ti≡ ∙ e ∙ Tj≡ .proj₂)) 
+syncStep-simp-≡ {ℂ} I J TsI TsJ p q i r s e | yes i∈I | yes i∈J | inj₂ Ti≡ | inj₁ Tj≡ = ⊥-elim (return≢ _ _ _ (sym Tj≡ ∙ sym e ∙ Ti≡ .proj₂))
+syncStep-simp-≡ {ℂ} I J TsI TsJ p q i r s e | yes i∈I | yes i∈J | inj₂ Ti≡ | inj₂ Tj≡ = ⨟-injective2 ℂ I J (Ti≡ .proj₁) (Tj≡ .proj₁) (sym (Ti≡ .proj₂) ∙ e ∙ Tj≡ .proj₂)
+syncStep-simp-≡ {ℂ} I J TsI TsJ p q i r s e | yes i∈I | no  i∉J = ⊥-elim (false≢true (sym (Data.Bool.Properties.¬-not i∉J) ∙ s))
+syncStep-simp-≡ {ℂ} I J TsI TsJ p q i r s e | no  i∉I | yes i∈J = ⊥-elim (false≢true (sym (Data.Bool.Properties.¬-not i∉I) ∙ r))
+syncStep-simp-≡ {ℂ} I J TsI TsJ p q i r s e | no  i∉I | no  i∉J = ⊥-elim (false≢true (sym (Data.Bool.Properties.¬-not i∉I) ∙ r))
 
 syncMemRd : TidSet → Rd → Rd
 syncMemRd I rd i with ∈-dec i I

@@ -166,7 +166,9 @@ syncStep-syncStep-comm : ∀ {ℂ} I J (Ts : Prog ℂ)
 syncStep-syncStep-comm I J Ts p q p' q' I≢J = funext λ i → lem i (∈-dec i I) (∈-dec i J)
   where
   lem : ∀ i → Dec (i ∈ I) → Dec (i ∈ J) → syncStep I (syncStep J Ts q) q' i ≡ syncStep J (syncStep I Ts p) p' i
-  lem i (yes a) (yes b) = {!sym (syncStep-simp-≡ J I Ts q p i b a)!}
+  lem i (yes a) (yes b) =
+    syncStep-simp-≡ I J (syncStep J Ts q) (syncStep I Ts p) q' p' i a b
+    (syncStep-simp-≡ J I Ts Ts q p i b a refl)
   lem i (no a) (yes b) =
     syncStep-simp-∉ I (syncStep J Ts q) q' i (¬∈→∉ i I a)
     ∙ syncStep-simp-∈ J Ts q (syncStep I Ts p) p' i b (sym (syncStep-simp-∉ I Ts p i (¬∈→∉ i I a)))
@@ -470,3 +472,69 @@ diamond {ℂ = ℂ} (sync I Rs G X Ts q) (sync I₁ .Rs .G .X .Ts p₁) with (fr
       (just (Rs , G , syncMem I₁ X , syncStep I₁ Ts p₁))
       (just (Rs , G , a , b))) (syncMem-comm I I₁ X) (syncStep-syncStep-comm {ℂ} I I₁ Ts q p₁ _ _ I≢I₁))
     stepRight
+
+strip : ∀ {ℂ} {C C1 C2 : CfgProg ℂ}
+  → StepProgRefl ℂ C C1
+  → StepProgRefl* ℂ C C2
+  → ∃[ C' ] (StepProgRefl* ℂ C1 C') × (StepProgRefl ℂ C2 C')
+strip x (done _) = _ , (done _ , x)
+strip x (step _ _ _ y1 y2) =
+  let (C , l1 , r1) = diamond x y1 in
+  let (C' , l2 , r2) = strip r1 y2 in
+  C' , (step _ _ _ l1 l2 , r2)
+
+stepRefl-confluence : ∀ {ℂ} {C C1 C2 : CfgProg ℂ}
+  → StepProgRefl* ℂ C C1
+  → StepProgRefl* ℂ C C2
+  → ∃[ C' ] (StepProgRefl* ℂ C1 C') × (StepProgRefl* ℂ C2 C')
+stepRefl-confluence (done _) y = _ , (y , done _)
+stepRefl-confluence (step _ _ _ x1 x2) y =
+  let (C' , l1 , r1) = strip x1 y in
+  let (C'' , l2 , r2) = stepRefl-confluence x2 l1 in
+  C'' , l2 , (step _ _ _ r1 r2)
+
+step→stepRefl : ∀ {ℂ} {C1 C2 : CfgProg ℂ} → StepProg ℂ C1 C2 → StepProgRefl ℂ C1 C2
+step→stepRefl (schd i Rs X Ts R G T R' G' X' T' x x₁ x₂) = schd i Rs X Ts R G T R' G' X' T' x x₁ x₂
+step→stepRefl (schdBad i Rs X Ts R G T x x₁ x₂) = schdBad i Rs X Ts R G T x x₁ x₂
+step→stepRefl (sync I Rs G X Ts q) = sync I Rs G X Ts q
+
+step*→stepRefl* : ∀ {ℂ} {C1 C2 : CfgProg ℂ} → StepProg* ℂ C1 C2 → StepProgRefl* ℂ C1 C2
+step*→stepRefl* (done _) = done _
+step*→stepRefl* (step _ _ _ x y) = step _ _ _ (step→stepRefl x) (step*→stepRefl* y)
+
+stepRefl→step* : ∀ {ℂ} {C1 C2 : CfgProg ℂ} → StepProgRefl ℂ C1 C2 → StepProg* ℂ C1 C2
+stepRefl→step* (refl C1) = done C1
+stepRefl→step* (schd i Rs X Ts R G T R' G' X' T' x x₁ x₂) = step
+  (just (Rs , G , X , Ts))
+  (just ((Rs [ i ↦ R' ]) , G' , X' , (Ts [ i ↦ T' ])))
+  (just ((Rs [ i ↦ R' ]) , G' , X' , (Ts [ i ↦ T' ])))
+  (schd i Rs X Ts R G T R' G' X' T' x x₁ x₂)
+  (done (just ((Rs [ i ↦ R' ]) , G' , X' , (Ts [ i ↦ T' ]))))
+stepRefl→step* (schdBad i Rs X Ts R G T x x₁ x₂) = step
+  (just (Rs , G , X , Ts))
+  nothing
+  nothing
+  (schdBad i Rs X Ts R G T x x₁ x₂)
+  (done nothing)
+stepRefl→step* (sync I Rs G X Ts q) = step
+  (just (Rs , G , X , Ts))
+  (just (Rs , G , syncMem I X , syncStep I Ts q))
+  (just (Rs , G , syncMem I X , syncStep I Ts q))
+  (sync I Rs G X Ts q)
+  (done (just (Rs , G , syncMem I X , syncStep I Ts q)))
+
+_++*_ : ∀ {ℂ} {C1 C2 C3 : CfgProg ℂ} → StepProg* ℂ C1 C2 → StepProg* ℂ C2 C3 → StepProg* ℂ C1 C3
+done _ ++* ys = ys
+step _ _ _ x xs ++* ys = step _ _ _ x (xs ++* ys)
+
+stepRefl*→step* : ∀ {ℂ} {C1 C2 : CfgProg ℂ} → StepProgRefl* ℂ C1 C2 → StepProg* ℂ C1 C2
+stepRefl*→step* (done _) = done _
+stepRefl*→step* (step _ _ _ x y) = stepRefl→step* x ++* stepRefl*→step* y
+
+confluence : ∀ {ℂ} {C C1 C2 : CfgProg ℂ}
+  → StepProg* ℂ C C1
+  → StepProg* ℂ C C2
+  → ∃[ C' ] (StepProg* ℂ C1 C') × (StepProg* ℂ C2 C')
+confluence x y =
+  let (C' , l , r) = stepRefl-confluence (step*→stepRefl* x) (step*→stepRefl* y) in
+  C' , stepRefl*→step* l , stepRefl*→step* r
