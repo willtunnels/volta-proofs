@@ -1,5 +1,6 @@
 module Volta.Util where
 
+open import Function.Base using (_∘_)
 open import Data.Bool using (Bool; true; false; not; _∧_)
 open import Data.Maybe using (Maybe; just; nothing)
 open import Data.Sum using (_⊎_; inj₁; inj₂)
@@ -13,6 +14,13 @@ open import Data.Empty using (⊥; ⊥-elim)
 open import Relation.Binary.PropositionalEquality
 import Relation.Binary.HeterogeneousEquality as H
 
+case : ∀ {a b c} {A : Set a} {B : Set b} {C : A ⊎ B → Set c} → (x : A ⊎ B) → ((x : A) → C (inj₁ x)) → ((x : B) → C (inj₂ x)) → C x
+case {C = C} x f g = Data.Sum.[_,_] {C = C} f g x
+
+-- Non-dependent version of `case` to aid type inference
+case' : ∀ {a b c} {A : Set a} {B : Set b} {C : Set c} (x : A ⊎ B) → ((x : A) → C) → ((x : B) → C) → C
+case' {C = C} x f g = Data.Sum.[_,_] {C = λ _ → C} f g x
+
 postulate
   funext : ∀ {a} {A B : Set a} {f g : A → B} → (∀ x → f x ≡ g x) → f ≡ g
   LEM : ∀ {a} (A : Set a) → A ⊎ ¬ A
@@ -20,6 +28,11 @@ postulate
 funext' : ∀ {A : Set} {B : A → Set} {f g : ∀ a → B a} → (∀ x → f x ≡ g x) → f ≡ g
 funext' {A} {B} {f} {g} h =
     H.≅-to-≡ (H.cong (λ f x → proj₂ (f x)) (H.≡-to-≅ (funext λ a → cong (a ,_) (h a))))
+
+peirce : ∀ {a} {A : Set a} → ¬ ¬ A → A
+peirce {a} {A} p with (LEM A)
+... | inj₁ q = q
+... | inj₂ q = ⊥-elim (p q)
 
 ¬∀→∃¬ : ∀ {a} {A : Set a} {P : A → Set} → ¬ (∀ x → P x) → ∃[ x ] ¬ P x
 ¬∀→∃¬ {A = A} {P = P} ¬∀ with LEM (∃[ x ] ¬ P x)
@@ -31,8 +44,17 @@ funext' {A} {B} {f} {g} h =
     ... | inj₁ px = px
     ... | inj₂ ¬px = ⊥-elim (¬∃¬ (x , ¬px))
 
-contraposition : ∀ {A B : Set} → (A → B) → ¬ B → ¬ A
+contraposition : ∀ {a b} {A : Set a} {B : Set b} → (A → B) → ¬ B → ¬ A
 contraposition P ¬b a = ¬b (P a)
+
+contraposition' : ∀ {a b} {A : Set a} {B : Set b} → (¬ A → ¬ B) → B → A
+contraposition' P b = (peirce ∘ contraposition P) λ x → x b
+
+¬⊎¬→¬× : ∀ {a b} {A : Set a} {B : Set b} → ¬ A ⊎ ¬ B → ¬ (A × B)
+¬⊎¬→¬× p q = case' p (λ x → x (q .proj₁)) (λ x → x (q .proj₂))
+
+¬×→¬⊎¬ : ∀ {a b} {A : Set a} {B : Set b} → ¬ (A × B) → ¬ A ⊎ ¬ B
+¬×→¬⊎¬ {a} {b} {A} {B} p = case' (LEM A) (λ a → case' (LEM B) (λ b → ⊥-elim (p (a , b))) inj₂) inj₁
 
 record HasDecEq (A : Set) : Set where
   field
@@ -60,13 +82,6 @@ subst₃ : ∀ {a} {A B C : Set a} (P : A → B → C → Set a) {x1 x2 y1 y2 z1
          → x1 ≡ x2 → y1 ≡ y2 → z1 ≡ z2
          → P x1 y1 z1 → P x2 y2 z2
 subst₃ P refl refl refl px = px
-
-case : ∀ {A B : Set} {C : A ⊎ B → Set} → (x : A ⊎ B) → ((x : A) → C (inj₁ x)) → ((x : B) → C (inj₂ x)) → C x
-case {C = C} x f g = Data.Sum.[_,_] {C = C} f g x
-
--- Non-dependent version of `case` to aid type inference
-case' : ∀ {A B C : Set} (x : A ⊎ B) → ((x : A) → C) → ((x : B) → C) → C
-case' {C = C} x f g = Data.Sum.[_,_] {C = λ _ → C} f g x
 
 not-true : ∀ {x} → not x ≡ true → x ≡ false
 not-true {false} _ = refl

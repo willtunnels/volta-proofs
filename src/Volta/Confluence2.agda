@@ -523,13 +523,9 @@ stepRefl→step* (sync I Rs G X Ts q) = step
   (sync I Rs G X Ts q)
   (done (just (Rs , G , syncMem I X , syncStep I Ts q)))
 
-_++*_ : ∀ {ℂ} {C1 C2 C3 : CfgProg ℂ} → StepProg* ℂ C1 C2 → StepProg* ℂ C2 C3 → StepProg* ℂ C1 C3
-done _ ++* ys = ys
-step _ _ _ x xs ++* ys = step _ _ _ x (xs ++* ys)
-
 stepRefl*→step* : ∀ {ℂ} {C1 C2 : CfgProg ℂ} → StepProgRefl* ℂ C1 C2 → StepProg* ℂ C1 C2
 stepRefl*→step* (done _) = done _
-stepRefl*→step* (step _ _ _ x y) = stepRefl→step* x ++* stepRefl*→step* y
+stepRefl*→step* (step _ _ _ x y) = stepRefl→step* x ++ stepRefl*→step* y
 
 confluence : ∀ {ℂ} {C C1 C2 : CfgProg ℂ}
   → StepProg* ℂ C C1

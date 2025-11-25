@@ -1,4 +1,3 @@
-{-# OPTIONS --allow-unsolved-metas #-}
 module Volta.Prog where
 
 open import Axiom.UniquenessOfIdentityProofs.WithK
@@ -140,6 +139,15 @@ yesRacingRd i rd = ∃[ j ] i ≢ j × i ∈ rd j
 yesRacingWr : Tid → Wr → Set
 yesRacingWr i (j , I) = i ≢ j × i ∈ I
 
+-- An Rd inducing no conflicts
+initRd : Rd
+initRd i = ∅
+
+-- A Wr inducing no conflicts
+-- It's messy to use zero here (any value would work), but making the first component of Wr a Maybe is too annoying
+initWr : Wr
+initWr = mkTid zero , ∅
+
 ¬noRacingRd→yesRacingRd : ∀ i rd → ¬ noRacingRd i rd → yesRacingRd i rd
 ¬noRacingRd→yesRacingRd i rd p = lem .proj₁ , ¬× (lem .proj₂) .proj₁ , ¬∉→∈ i (rd (lem .proj₁)) (¬× (lem .proj₂) .proj₂)
   where
@@ -172,8 +180,14 @@ record MemEvs : Set where
     rd : Rd
     wr : Wr
 
+initMemEvs : MemEvs
+initMemEvs = evs initRd initWr
+
 Mem : Set
 Mem = Gid → MemEvs
+
+initMem : Mem
+initMem g = initMemEvs
 
 MemEvs-≡ : ∀ {x x' y y'} → x ≡ x' → y ≡ y' → evs x y ≡ evs x' y'
 MemEvs-≡ refl refl = refl
@@ -233,11 +247,20 @@ doRd-noRace i j g g' X p = cast (cong (λ a → noRacingWr i a) (doRd-getWr X g 
 ≤-Rd : Tid → Rd → Rd → Set
 ≤-Rd i r1 r2 = noRacingRd i r2 → noRacingRd i r1
 
+≥-Rd : Tid → Rd → Rd → Set
+≥-Rd i r1 r2 = ≤-Rd i r2 r1
+
 ≤-Wr : Tid → Wr → Wr → Set
 ≤-Wr i w1 w2 = noRacingWr i w2 → noRacingWr i w1
 
+≥-Wr : Tid → Wr → Wr → Set
+≥-Wr i w1 w2 = ≤-Wr i w2 w1
+
 ≤-MemEvs : Tid → MemEvs → MemEvs → Set
 ≤-MemEvs i X1 X2 = ≤-Rd i (X1 .MemEvs.rd) (X2 .MemEvs.rd) × ≤-Wr i (X1 .MemEvs.wr) (X2 .MemEvs.wr)
+
+≥-MemEvs : Tid → MemEvs → MemEvs → Set
+≥-MemEvs i X1 X2 = ≤-MemEvs i X2 X1
 
 -- X1 ≤ X2 iff a race for i under X1 implies a race for i under X2
 ≤-Mem : Tid → Mem → Mem → Set
@@ -453,6 +476,10 @@ CfgThd ℂ = Maybe (REnv (Carrier ℂ) × GEnv (Carrier ℂ) × Mem × Thd ℂ)
 CfgProg : Magma → Set
 CfgProg ℂ = Maybe (REnvs (Carrier ℂ) × GEnv (Carrier ℂ) × Mem × Prog ℂ)
 
+projMem : ∀ {ℂ} → CfgProg ℂ → Maybe Mem 
+projMem nothing = nothing
+projMem (just (_ , _ , X , _)) = just X
+
 CfgProg-≡-intro : ∀ {ℂ}
   {Rs  : REnvs (Carrier ℂ)} {G  : GEnv (Carrier ℂ)} {X  : Mem} {Ts  : Prog ℂ}
   {Rs' : REnvs (Carrier ℂ)} {G' : GEnv (Carrier ℂ)} {X' : Mem} {Ts' : Prog ℂ}
@@ -504,6 +531,10 @@ data StepProg* (ℂ : Magma) : CfgProg ℂ → CfgProg ℂ → Set where
     → StepProg* ℂ C2 C3
     → StepProg* ℂ C1 C3
 
+_++_ : ∀ {ℂ} {C1 C2 C3 : CfgProg ℂ} → StepProg* ℂ C1 C2 → StepProg* ℂ C2 C3 → StepProg* ℂ C1 C3
+done _ ++ ys = ys
+step _ _ _ x xs ++ ys = step _ _ _ x (xs ++ ys)
+
 data StepProgRefl (ℂ : Magma) : CfgProg ℂ → CfgProg ℂ → Set where
   refl : ∀ C
     → StepProgRefl ℂ C C
@@ -528,3 +559,45 @@ data StepProgRefl* (ℂ : Magma) : CfgProg ℂ → CfgProg ℂ → Set where
     → StepProgRefl  ℂ C1 C2
     → StepProgRefl* ℂ C2 C3
     → StepProgRefl* ℂ C1 C3
+
+CfgThdS : Magma → Set
+CfgThdS ℂ = REnv (Carrier ℂ) × GEnv (Carrier ℂ) × Thd ℂ
+
+CfgProgS : Magma → Set
+CfgProgS ℂ = REnvs (Carrier ℂ) × GEnv (Carrier ℂ) × Prog ℂ
+
+-- Step thread simple (i.e. no race checks)
+data StepThdS (ℂ : Magma) (i : Tid) : CfgThdS ℂ → CfgThdS ℂ → Set where
+  const : ∀ R G r c T
+    → StepThdS ℂ i (R , G , const r c ⨟ T) (R [ r ↦ c ] , G , T)
+  binOp : ∀ R G r r1 r2 T
+    → StepThdS ℂ i (R , G , binOp r r1 r2 ⨟ T) (R [ r ↦ ⊕ ℂ (R r1) (R r2) ] , G , T)
+  rdReg : ∀ R G r1 r2 T
+    → StepThdS ℂ i (R , G , rdReg r1 r2 ⨟ T) (R [ r1 ↦ R r2 ] , G , T)
+  rdGbl : ∀ R G r g T
+    → StepThdS ℂ i (R , G , rdGbl r g ⨟ T) (R [ r ↦ G g ] , G , T)
+  wrGbl : ∀ R G g r T
+    → StepThdS ℂ i (R , G , wrGbl g r ⨟ T) (R , G [ g ↦ R r ] , T)
+
+-- Step program simple (i.e. no race checks)
+data StepProgS (ℂ : Magma) : CfgProgS ℂ → CfgProgS ℂ → Set where
+  schd : ∀ i Rs Ts R G T R' G' T'
+    → Rs i ≡ R
+    → Ts i ≡ T
+    → StepThdS ℂ i (R , G , T) (R' , G' , T')
+    → StepProgS ℂ (Rs , G , Ts) (Rs [ i ↦ R' ] , G' , Ts [ i ↦ T' ])
+  sync : ∀ I Rs G Ts
+    → (q : canSync I Ts)
+    → StepProgS ℂ (Rs , G , Ts) (Rs , G , syncStep I Ts q)
+
+data StepProgS* (ℂ : Magma) : CfgProgS ℂ → CfgProgS ℂ → Set where
+  done : ∀ C
+    → StepProgS* ℂ C C
+  step : ∀ C1 C2 C3
+    → StepProgS  ℂ C1 C2
+    → StepProgS* ℂ C2 C3
+    → StepProgS* ℂ C1 C3
+
+_++ₛ_ : ∀ {ℂ} {C1 C2 C3 : CfgProg ℂ} → StepProg* ℂ C1 C2 → StepProg* ℂ C2 C3 → StepProg* ℂ C1 C3
+done _ ++ₛ ys = ys
+step _ _ _ x xs ++ₛ ys = step _ _ _ x (xs ++ₛ ys)
