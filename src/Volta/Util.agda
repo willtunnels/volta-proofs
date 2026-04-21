@@ -1,4 +1,4 @@
-module KernelCheck.Util where
+module Volta.Util where
 
 open import Data.Bool using (Bool; true; false; not; _∧_)
 open import Data.Maybe using (Maybe; just; nothing)

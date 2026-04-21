@@ -1,4 +1,4 @@
-name: kernel-check
+name: volta
 include: src
 depend: standard-library
 flags:

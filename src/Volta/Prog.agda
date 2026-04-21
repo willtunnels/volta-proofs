@@ -1,5 +1,5 @@
 {-# OPTIONS --allow-unsolved-metas #-}
-module KernelCheck.Prog where
+module Volta.Prog where
 
 open import Axiom.UniquenessOfIdentityProofs.WithK
 open import Function.Base using (_∘_; _$_)
@@ -17,8 +17,8 @@ open import Relation.Nullary.Negation using (¬_)
 
 open import Relation.Binary.PropositionalEquality
 open ≡-Reasoning
-open import KernelCheck.DecSet
-open import KernelCheck.Util
+open import Volta.DecSet
+open import Volta.Util
 
 record Magma : Set₁ where
   field

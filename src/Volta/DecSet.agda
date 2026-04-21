@@ -1,4 +1,4 @@
-module KernelCheck.DecSet where
+module Volta.DecSet where
 
 open import Function.Base using (_∘_)
 open import Data.Bool using (Bool; true; false; not; _∧_; _∨_)
@@ -9,7 +9,7 @@ open import Relation.Binary.PropositionalEquality
 open import Relation.Nullary.Negation using (¬_)
 open import Data.Empty using (⊥; ⊥-elim)
 
-open import KernelCheck.Util
+open import Volta.Util
 
 DecSet : Set → Set
 DecSet A = A → Bool

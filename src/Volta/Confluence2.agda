@@ -1,4 +1,4 @@
-module KernelCheck.Confluence2 where
+module Volta.Confluence2 where
 
 open import Function.Base using (_∘_; _$_)
 open import Data.Empty using (⊥-elim)
@@ -17,10 +17,10 @@ import Relation.Binary.HeterogeneousEquality as H
 open import Relation.Binary.PropositionalEquality
 open ≡-Reasoning
 
-open import KernelCheck.Prog
-open import KernelCheck.Util
-open import KernelCheck.DecSet
-open import KernelCheck.Confluence
+open import Volta.Prog
+open import Volta.Util
+open import Volta.DecSet
+open import Volta.Confluence
 
 StepThd-≡ : ∀ {ℂ i C C1 C2}
   → StepThd ℂ i C C1
